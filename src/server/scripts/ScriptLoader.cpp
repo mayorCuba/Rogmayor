@@ -28,6 +28,7 @@ void AddSC_CustomStartups();
 
 //battlepay
 void AddSC_BattlePay_Services();
+void AddSC_BattlePay_Professions();
 
 //spells
 void AddSC_demonhunter_spell_scripts();
@@ -1302,6 +1303,7 @@ void AddScripts()
 void AddBattlePayScripts()
 {
     AddSC_BattlePay_Services();
+    AddSC_BattlePay_Professions();
 }
 
 void AddSpellScripts()
