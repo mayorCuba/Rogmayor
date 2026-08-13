@@ -29,6 +29,10 @@ void AddSC_CustomStartups();
 //battlepay
 void AddSC_BattlePay_Services();
 void AddSC_BattlePay_Professions();
+void AddSC_BattlePay_CharServices();
+void AddSC_BattlePay_Pathfinder();
+void AddSC_BattlePay_GoblinMercenary();
+void AddSC_BattlePay_GuildRename();
 
 //spells
 void AddSC_demonhunter_spell_scripts();
@@ -1304,6 +1308,10 @@ void AddBattlePayScripts()
 {
     AddSC_BattlePay_Services();
     AddSC_BattlePay_Professions();
+    AddSC_BattlePay_CharServices();
+    AddSC_BattlePay_Pathfinder();
+    AddSC_BattlePay_GoblinMercenary();
+    AddSC_BattlePay_GuildRename();
 }
 
 void AddSpellScripts()
