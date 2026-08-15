@@ -33,6 +33,7 @@ void AddSC_BattlePay_CharServices();
 void AddSC_BattlePay_Pathfinder();
 void AddSC_BattlePay_GoblinMercenary();
 void AddSC_BattlePay_GuildRename();
+void AddSC_BattlePay_AlliedRaces();
 
 //spells
 void AddSC_demonhunter_spell_scripts();
@@ -1312,6 +1313,7 @@ void AddBattlePayScripts()
     AddSC_BattlePay_Pathfinder();
     AddSC_BattlePay_GoblinMercenary();
     AddSC_BattlePay_GuildRename();
+    AddSC_BattlePay_AlliedRaces();
 }
 
 void AddSpellScripts()

@@ -60,7 +60,9 @@ public:
         Guild* guild = sGuildMgr->GetGuildByLeader(player->GetGUID());
         if (!guild)
         {
-            reason = "You must be the Guild Master to use Guild Rename.";
+            reason = sObjectMgr->GetTrinityString(
+                Battlepay::String::GuildMasterRequired,
+                session->GetSessionDbLocaleIndex());
             return false;
         }
 

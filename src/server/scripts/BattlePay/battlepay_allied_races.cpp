@@ -2,89 +2,80 @@
 #include "Player.h"
 #include "BattlePayMgr.h"
 #include "BattlePayData.h"
-#include "AchievementMgr.h"
+#include "DatabaseEnv.h"
 #include "DB2Stores.h"
 
 // ---------------------------------------------------------------------
-// Legion Allied Races Unlock
+// Razas aliadas de Legion (paywall via BattlePay)
 //
-// Unlocks the four Allied Races introduced with patch 7.3.5 by completing
-// their hidden character achievements:
-//   12450 - Allied Races: Void Elf (Hidden Character Achievement)
-//   12451 - Allied Races: Lightforged Draenei (Hidden Character Achievement)
-//   12452 - Allied Races: Highmountain Tauren (Hidden Character Achievement)
-//   12453 - Allied Races: Nightborne (Hidden Character Achievement)
+// Mecanismo: el desbloqueo de razas aliadas en este core se resuelve
+// por logro A NIVEL DE CUENTA (no de personaje), vía la tabla
+// account_achievement (CharacterDatabase) + WorldSession::SetAchievement
+// para que tenga efecto inmediato en memoria sin necesidad de relog.
+//
+// IDs de logro confirmados (ver race_unlock_requirement, WorldDatabase):
+//   raceID 27 = Nightborne            -> achievementId 12244
+//   raceID 28 = Highmountain Tauren   -> achievementId 12245
+//   raceID 29 = Void Elf              -> achievementId 12242
+//   raceID 30 = Lightforged Draenei   -> achievementId 12243
+// (todas expansion = 6, Legion)
 // ---------------------------------------------------------------------
-namespace BattlePay
+
+static void GrantAlliedRaceAchievement(WorldSession* session, Player* player, uint32 achievementId)
 {
-    enum AlliedRaceUnlockAchievement : uint32
-    {
-        VoidElf         = 12450,
-        Lightforged     = 12451,
-        Highmountain    = 12452,
-        Nightborne      = 12453
-    };
+    // Persistir en account_achievement para que sobreviva a un logout/relog
+    // (esto es lo que gatilla el desbloqueo de la raza en pantalla de creación)
+    CharacterDatabase.PExecute(
+        "INSERT INTO account_achievement (account, first_guid, achievement, date) "
+        "VALUES (%u, %u, %u, UNIX_TIMESTAMP()) "
+        "ON DUPLICATE KEY UPDATE date = UNIX_TIMESTAMP()",
+        session->GetAccountId(), player->GetGUID().GetCounter(), achievementId);
+
+    // Efecto inmediato en memoria (sin esperar al próximo login)
+    session->SetAchievement(achievementId);
+
+    // Completar el logro "de verdad" (popup, marca en la ventana de logros, etc.)
+    if (AchievementEntry const* achievement = sAchievementStore.LookupEntry(achievementId))
+        player->CompletedAchievement(achievement);
 }
 
-class BattlePay_AlliedRaces : public BattlePayProductScript
+template<uint32 t_AchievementId> class BattlePay_AlliedRace : public BattlePayProductScript
 {
 public:
-    explicit BattlePay_AlliedRaces(std::string scriptName) : BattlePayProductScript(scriptName) { }
+    explicit BattlePay_AlliedRace(std::string scriptName) : BattlePayProductScript(scriptName) {}
 
     void OnProductDelivery(WorldSession* session, Battlepay::Product const& /*product*/) override
     {
-        Player* player = session ? session->GetPlayer() : nullptr;
+        auto player = session->GetPlayer();
         if (!player)
             return;
 
-        static constexpr uint32 achievements[] =
-        {
-            BattlePay::VoidElf,
-            BattlePay::Lightforged,
-            BattlePay::Highmountain,
-            BattlePay::Nightborne
-        };
-
-        for (uint32 achievementId : achievements)
-        {
-            if (AchievementEntry const* achievement = sAchievementStore.LookupEntry(achievementId))
-                if (!player->HasAchieved(achievementId))
-                    player->CompletedAchievement(achievement);
-        }
+        GrantAlliedRaceAchievement(session, player, t_AchievementId);
     }
 
     bool CanBuy(WorldSession* session, Battlepay::Product const& /*product*/, std::string& reason) override
     {
-        Player* player = session ? session->GetPlayer() : nullptr;
+        auto player = session->GetPlayer();
         if (!player)
         {
-            reason = sObjectMgr->GetTrinityString(
-                Battlepay::String::NeedToBeInGame,
-                session->GetSessionDbLocaleIndex());
+            reason = sObjectMgr->GetTrinityString(Battlepay::String::NeedToBeInGame, session->GetSessionDbLocaleIndex());
             return false;
         }
 
-        if (player->HasAchieved(BattlePay::VoidElf) &&
-            player->HasAchieved(BattlePay::Lightforged) &&
-            player->HasAchieved(BattlePay::Highmountain) &&
-            player->HasAchieved(BattlePay::Nightborne))
+        if (session->HasAchievement(t_AchievementId))
         {
-            reason = sObjectMgr->GetTrinityString(
-                Battlepay::String::YouAlreadyOwnThat,
-                session->GetSessionDbLocaleIndex());
+            reason = sObjectMgr->GetTrinityString(Battlepay::String::YouAlreadyOwnThat, session->GetSessionDbLocaleIndex());
             return false;
         }
 
         return true;
     }
-
-    std::string GetCustomData(Battlepay::Product const& /*product*/) override
-    {
-        return R"({"service":"allied_races","version":1})";
-    }
 };
 
 void AddSC_BattlePay_AlliedRaces()
 {
-    new BattlePay_AlliedRaces("battlepay_service_allied_races");
+    new BattlePay_AlliedRace<12244>("legion_nightborne");
+    new BattlePay_AlliedRace<12245>("legion_highmountain");
+    new BattlePay_AlliedRace<12242>("legion_void");
+    new BattlePay_AlliedRace<12243>("legion_lfdraenei");
 }

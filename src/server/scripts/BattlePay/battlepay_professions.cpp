@@ -25,7 +25,7 @@ namespace BattlePay
         };
     }
 
-    static std::map<uint32, uint32> SkillLearningSpells =
+    static std::map<uint32, uint32> const SkillLearningSpells =
     {
         { SKILL_ALCHEMY,        ProfessionBookSpells::Alchemy        },
         { SKILL_BLACKSMITHING,  ProfessionBookSpells::Blacksmithing  },
@@ -56,12 +56,13 @@ public:
         if (!player)
             return;
 
-        auto spellID = BattlePay::SkillLearningSpells[t_SkillID];
+        // .at() instead of operator[]: never inserts an accidental (0) entry into the map
+        auto spellID = BattlePay::SkillLearningSpells.at(t_SkillID);
 
         player->CastSpell(player, spellID, true);
         player->SetSkill(t_SkillID, player->GetSkillStep(t_SkillID), t_Value, t_Value);
 
-        for (auto itr : sSpellMgr->GetTradeSpellFromSkill(t_SkillID))
+        for (auto const& itr : sSpellMgr->GetTradeSpellFromSkill(t_SkillID))
             player->learnSpell(itr->Spell, false);
 
         switch (t_SkillID)
@@ -115,7 +116,7 @@ public:
 
     std::string GetCustomData(Battlepay::Product const& /*product*/) override
     {
-        return R"({\"skill_id\": )" + std::to_string(t_SkillID) + "}";
+        return R"({"skill_id": )" + std::to_string(t_SkillID) + "}";
     }
 };
 

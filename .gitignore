@@ -24,3 +24,4 @@ cmake-build-*/
 *.user
 sql/base/LegionCore_world_2020_04_25.sql
 /sql/updates/world/Battlepay/sppnxt_world.sql
+/sql/_quarantine/sppnxt_world.sql

@@ -271,7 +271,8 @@ namespace Battlepay
         YouAlreadyOwnThat = 14093,
         Level90Required = 14094,
         ReachPrimaryProfessionLimit = 14095,
-        NotEnoughFreeBagSlots = 14096
+        NotEnoughFreeBagSlots = 14096,
+        GuildMasterRequired = 14097
     };
 
     enum WebsiteType

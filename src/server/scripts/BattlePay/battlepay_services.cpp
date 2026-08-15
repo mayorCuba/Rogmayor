@@ -27,7 +27,7 @@ public:
         if (t_Level >= 90)
         {
             std::vector<Item*> toBeMailedCurrentEquipment;
-            for (int es = EquipmentSlots::EQUIPMENT_SLOT_START; es < EquipmentSlots::EQUIPMENT_SLOT_END; es++)
+            for (uint8 es = EquipmentSlots::EQUIPMENT_SLOT_START; es < EquipmentSlots::EQUIPMENT_SLOT_END; ++es)
             {
                 if (Item* currentEquiped = player->GetItemByPos(INVENTORY_SLOT_BAG_0, es))
                 {
@@ -129,70 +129,65 @@ public:
 
     void OnLevelChanged(Player* player, uint8 oldLevel) override
     {
-        if (player == NULL)
+        if (player == nullptr)
             return;
 
+        // Read the config values once (they cannot change mid-tick anyway).
         uint32 trackerToken = sWorld->getIntConfig(CONFIG_REFERRAL_TRACKER_TOKEN_TYPE);
-        if (trackerToken <= 0)
+        if (trackerToken == 0)
             return;
 
-        if (sWorld->getIntConfig(CONFIG_REFERRAL_TRACKER_LEVEL_THRESHOLD) != oldLevel + 1)
+        uint32 threshold = sWorld->getIntConfig(CONFIG_REFERRAL_TRACKER_LEVEL_THRESHOLD);
+        if (threshold == 0 || threshold != oldLevel + 1)
             return;
 
         if (!player->GetSession() || player->GetSession()->GetReferer() == 0)
             return;
 
-        // check that this account has not already counted towards the total referral count
+        uint32 accountId = player->GetSession()->GetAccountId();
+        uint32 referer = player->GetSession()->GetReferer();
+
+        // Check that this account has not already counted towards the total referral count.
+        // NOTE: this reads from the DB, so a character that just leveled up is not yet saved
+        // with its new level and correctly does NOT block its own referral on the first run.
         PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_NUM_ACCOUNT_CHARS_REACHED_LEVEL);
-        stmt->setUInt32(0, player->GetSession()->GetAccountId());
-        stmt->setUInt8(1, sWorld->getIntConfig(CONFIG_REFERRAL_TRACKER_LEVEL_THRESHOLD));
+        stmt->setUInt32(0, accountId);
+        stmt->setUInt8(1, threshold);
         PreparedQueryResult result = CharacterDatabase.Query(stmt);
 
         uint64 charsReachedThreshold = result ? (*result)[0].GetUInt64() : 0;
         if (charsReachedThreshold >= 1)
             return;
 
-        uint32 referer = player->GetSession()->GetReferer();
-
+        // Read the CURRENT (pre-increment) tracker balance once, so we can derive the
+        // milestone from it. Deriving from the old value avoids an extra round-trip.
         stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_ACCOUNT_TOKEN);
         stmt->setUInt32(0, referer);
         stmt->setUInt8(1, trackerToken);
         result = LoginDatabase.Query(stmt);
 
-        int64 oldTokenAmount = (result) ? (*result)[0].GetInt64() : 0;
+        int64 oldTokenAmount = result ? (*result)[0].GetInt64() : 0;
 
+        uint8 numReferralThresholdReached = 0;
+        switch (oldTokenAmount)
+        {
+        case 0:  numReferralThresholdReached = 1;  break; // new total 1
+        case 1:  numReferralThresholdReached = 2;  break; // new total 2
+        case 4:  numReferralThresholdReached = 3;  break; // new total 5
+        case 9:  numReferralThresholdReached = 4;  break; // new total 10
+        case 14: numReferralThresholdReached = 5;  break; // new total 15
+        case 24: numReferralThresholdReached = 6;  break; // new total 25
+        default: break;
+        }
+
+        // Atomic increment: LOGIN_INS_OR_UPD_TOKEN is "amount = amount + ?" so no
+        // lost updates even if two referrer events race. Execute() is non-blocking.
         stmt = LoginDatabase.GetPreparedStatement(LOGIN_INS_OR_UPD_TOKEN);
         stmt->setUInt32(0, referer);
         stmt->setUInt8(1, trackerToken);
         stmt->setInt64(2, 1);
         stmt->setInt64(3, 1);
         LoginDatabase.Execute(stmt);
-
-        uint8 numReferralThresholdReached = 0;
-        uint8 newTokenAmount = oldTokenAmount + 1;
-        switch (newTokenAmount)
-        {
-        case 1:
-            numReferralThresholdReached = 1;
-            break;
-        case 2:
-            numReferralThresholdReached = 2;
-            break;
-        case 5:
-            numReferralThresholdReached = 3;
-            break;
-        case 10:
-            numReferralThresholdReached = 4;
-            break;
-        case 15:
-            numReferralThresholdReached = 5;
-            break;
-        case 25:
-            numReferralThresholdReached = 6;
-            break;
-        default:
-            break;
-        }
 
         if (numReferralThresholdReached == 0)
             return;
@@ -206,28 +201,10 @@ public:
     }
 };
 
-template <uint32 t_AccountServiceFlag> class BattlePay_AccountService : BattlePayProductScript
-{
-public:
-    explicit BattlePay_AccountService(std::string scriptName) : BattlePayProductScript(scriptName) {}
-
-    void OnProductDelivery(WorldSession* /*session*/, Battlepay::Product const& /*product*/) override
-    {
-        //session->SetServiceFlags(t_AccountServiceFlag);
-    }
-
-    bool CanBuy(WorldSession* /*session*/, Battlepay::Product const& /*product*/, std::string& reason) override
-    {
-
-        return true;
-    }
-};
-
 void AddSC_BattlePay_Services()
 {
     new BattlePay_Level<90>("battlepay_service_level90");
     new BattlePay_Level<100>("battlepay_service_level100");
     new playerScriptTokensAvailable();
     new reachedRefererThreshold();
-    //new BattlePay_AccountService<ServiceFlags::PremadePve>("battlepay_service_premade");
 }
