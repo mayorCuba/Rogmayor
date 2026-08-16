@@ -24,6 +24,7 @@
 #include "Object.h"
 #include "Player.h"
 #include "Util.h"
+#include "GameObject.h"
 #include "WorldStatePackets.h"
 
 namespace
@@ -503,4 +504,36 @@ uint8 BattlegroundArathiBasin::_GetCapturedNodesForTeam(TeamId teamID)
             ++nodes;
 
     return nodes;
+}
+
+BattlegroundArathiBasin::CapturePointInfo* BattlegroundAB::GetABNodeState(uint32 abNode)
+{
+    if (abNode >= BG_AB_BattlegroundNodes::BG_AB_DYNAMIC_NODES_COUNT)
+        return 0;
+
+    return &_capturePoints[abNode];
+}
+
+GameObject const* BattlegroundAB::GetNearGameObjectFlag(const Player* player)
+{
+    if (!player)
+        return NULL;
+    uint8 node = BG_AB_NODE_STABLES;
+    GameObject* nearObject = GetBgMap()->GetGameObject(BgObjects[node * 8 + 7]);
+    while ((node < BG_AB_DYNAMIC_NODES_COUNT) && ((!nearObject) || (!player->IsWithinDistInMap(nearObject, 6))))
+    {
+        ++node;
+        nearObject = GetBgMap()->GetGameObject(BgObjects[node * 8 + BG_AB_OBJECT_AURA_CONTESTED]);
+    }
+
+    if (node == BG_AB_DYNAMIC_NODES_COUNT)
+        return NULL;
+
+    TeamId teamIndex = player->GetTeamId();
+    if (_capturePoints[node].Status == NODE_STATUS_NEUTRAL || teamIndex != _capturePoints[node].TeamID)
+    {
+        return _capturePoints[node].Point;
+    }
+
+    return nullptr;
 }

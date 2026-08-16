@@ -121,6 +121,8 @@ class Pet : public Guardian
 
         Unit* GetOwner() { return m_owner; }
 
+        void SettingAllSpellAutocast(bool autocast, uint32 excludeSpell = 0);
+
         uint32 GetSpecializationId() const { return m_specialization; }
         void SetSpecialization(uint32 id) { m_specialization = id; }
         void LearnSpecializationSpell();

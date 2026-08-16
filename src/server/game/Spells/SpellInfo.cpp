@@ -3567,6 +3567,11 @@ SpellEffectEntry const* SpellEntry::GetSpellEffect(uint32 eff, uint8 diff) const
     return sDB2Manager.GetSpellEffectEntry(ID, eff, diff);
 }
 
+SpellEffectEntry* SpellEntry::GetSpellEffect0(uint32 eff, uint8 diff)
+{
+    return sDB2Manager.GetSpellEffectEntry0(ID, eff, diff);
+}
+
 void SpellInfo::_UnloadImplicitTargetConditionLists()
 {
     // find the same instances of ConditionList and delete them.

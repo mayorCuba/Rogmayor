@@ -25,6 +25,7 @@
 #include "Util.h"
 #include "SHA1.h"
 #include "SHA256.h"
+#include "PlayerBotMgr.h"
 
 namespace AccountMgr
 {
@@ -84,7 +85,7 @@ AccountOpResult DeleteAccount(uint32 accountId)
             {
                 WorldSession* s = p->GetSession();
                 s->KickPlayer();                            // mark session to remove at next session list update
-                s->LogoutPlayer(false);                     // logout player without waiting next session list update
+                s->LogoutPlayer(false, "DeleteAccount");                     // logout player without waiting next session list update
             }
 
             Player::DeleteFromDB(guid, accountId, false);       // no need to update realm characters

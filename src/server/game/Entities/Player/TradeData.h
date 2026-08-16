@@ -45,6 +45,7 @@ public:
     void SetItem(TradeSlots slot, Item* item);
 
     uint32 GetSpell() const;
+    bool SetItemAtNullSlot(Item* item, bool update /*= false*/);
     void SetSpell(uint32 spell_id, Item* castItem = nullptr);
 
     Item*  GetSpellCastItem() const;
@@ -65,6 +66,8 @@ public:
     uint32 GetServerStateIndex() const;
     void UpdateServerStateIndex();
     void Update(bool for_trader = true);
+
+    bool IsNonPlayerBotTrade();
 
 private:
     Player* _player;

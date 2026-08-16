@@ -25,6 +25,7 @@
 #include "ObjectMgr.h"
 #include "LFG.h"
 #include "GameEventMgr.h"
+#include "PlayerBotSession.h"
 
 BattlegroundQueue::BattlegroundQueue()
 {
@@ -321,6 +322,294 @@ uint32 BattlegroundQueue::GetAverageQueueWaitTime(GroupQueueInfo* ginfo, uint8 b
     return 0;
 }
 
+bool BattlegroundQueue::ExistQueueByRatedArena(ObjectGuid& guid, bool isRated)
+{
+    QueuedPlayersMap::iterator itPlayer = _queuedPlayers.find(guid);
+    if (itPlayer == _queuedPlayers.end())
+        return false;
+    PlayerQueueInfo& qinfo = itPlayer->second;
+    if (qinfo.GroupInfo->IsRated != isRated)
+        return false;
+    return true;
+}
+
+bool BattlegroundQueue::CheckRatedArenaMatch(uint8 bracket_id)
+{
+    GroupQueueInfo* allianceRealGroup = GetFirstRealPlayerGroupInfo(bracket_id, MS::Battlegrounds::QueueGroupTypes::PremadeAlliance);
+    GroupQueueInfo* hordeRealGroup = GetFirstRealPlayerGroupInfo(bracket_id, MS::Battlegrounds::QueueGroupTypes::PremadeHorde);
+    if (!allianceRealGroup && !hordeRealGroup)
+        return false;
+
+    bool allianceTeamReady = TryGatherPlayerBySelfRatedArena(bracket_id, allianceRealGroup);
+    bool hordeTeamReady = TryGatherPlayerBySelfRatedArena(bracket_id, hordeRealGroup);
+    if (allianceTeamReady && hordeTeamReady)
+    {
+        if (allianceRealGroup && hordeRealGroup)
+        {
+            sWorld->SendGlobalText("Arena Test", NULL);
+        }
+        return true;
+    }
+    if (!allianceTeamReady && !hordeTeamReady)
+        return false;
+    if (!allianceTeamReady)
+        return TryGatherPlayerByEnemyRatedArena(bracket_id, hordeRealGroup, true);
+    else if (!hordeTeamReady)
+        return TryGatherPlayerByEnemyRatedArena(bracket_id, allianceRealGroup, true);
+    return false;
+}
+
+GroupQueueInfo* BattlegroundQueue::GetFirstRealPlayerGroupInfo(uint8 bracket_id, uint8 groupType)
+{
+    for (auto itr_team = _queuedGroups[bracket_id][groupType].begin();
+        itr_team != _queuedGroups[bracket_id][groupType].end(); ++itr_team)
+    {
+        GroupQueueInfo* gInfo = *itr_team;
+        if (gInfo->IsInvitedToBGInstanceGUID || !gInfo->IsRated)
+            continue;
+        for (std::map<ObjectGuid, PlayerQueueInfo*>::iterator itInfo = gInfo->Players.begin(); itInfo != gInfo->Players.end(); ++itInfo)
+        {
+            Player* groupPlayer = ObjectAccessor::FindPlayer(itInfo->first);
+            if (!groupPlayer || groupPlayer->IsPlayerBot())
+                continue;
+            return gInfo;
+        }
+    }
+    return NULL;
+}
+
+bool BattlegroundQueue::TryGatherPlayerBySelfRatedArena(uint8 bracket_id, GroupQueueInfo* gInfo)
+{
+    if (!gInfo)
+        return false;
+    uint32 needCount = gInfo->JoinType;
+    if (needCount == 0)
+        return false;
+    SelectionPool& selection = (gInfo->Team == Team::ALLIANCE) ? m_SelectionPools[0] : m_SelectionPools[1];
+    uint8 groupType = (gInfo->Team == Team::ALLIANCE) ? MS::Battlegrounds::QueueGroupTypes::PremadeAlliance : MS::Battlegrounds::QueueGroupTypes::PremadeHorde;
+    selection.Init();
+    selection.AddGroup(gInfo, needCount);
+    if (selection.GetPlayerCount() >= needCount)
+        return true;
+    for (auto itr_team = _queuedGroups[bracket_id][groupType].begin();
+        itr_team != _queuedGroups[bracket_id][groupType].end(); ++itr_team)
+    {
+        GroupQueueInfo* groupInfo = *itr_team;
+        if (groupInfo == gInfo || groupInfo->IsInvitedToBGInstanceGUID || !groupInfo->IsRated)
+            continue;
+        if (groupInfo->GroupId != gInfo->GroupId || groupInfo->Team != gInfo->Team)
+            continue;
+        selection.AddGroup(groupInfo, needCount);
+        if (selection.GetPlayerCount() >= needCount)
+            return true;
+    }
+    return false;
+}
+
+bool BattlegroundQueue::TryGatherPlayerByEnemyRatedArena(uint8 bracket_id, GroupQueueInfo* gInfo, bool needBroadcast)
+{
+    if (!gInfo)
+        return false;
+    uint32 needCount = gInfo->JoinType;
+    if (needCount == 0)
+        return false;
+    std::list<uint32> queueAllTeamIDs;
+    SelectionPool& selection = (gInfo->Team == Team::ALLIANCE) ? m_SelectionPools[1] : m_SelectionPools[0];
+    uint8 groupType = (gInfo->Team == Team::HORDE) ? MS::Battlegrounds::QueueGroupTypes::PremadeAlliance : MS::Battlegrounds::QueueGroupTypes::PremadeHorde;
+    for (auto itr_team = _queuedGroups[bracket_id][groupType].begin();
+        itr_team != _queuedGroups[bracket_id][groupType].end(); ++itr_team)
+    {
+        GroupQueueInfo* groupInfo = *itr_team;
+        if (groupInfo->IsInvitedToBGInstanceGUID || !groupInfo->IsRated || groupInfo->GroupId == 0)
+            continue;
+        if (groupInfo->JoinType != gInfo->JoinType || groupInfo->Team == gInfo->Team)
+            continue;
+        bool exist = false;
+        for (uint32 savedTeamID : queueAllTeamIDs)
+        {
+            if (groupInfo->GroupId == savedTeamID)
+            {
+                exist = true;
+                break;
+            }
+        }
+        if (!exist)
+            queueAllTeamIDs.push_back(groupInfo->GroupId);
+    }
+
+    for (uint32 savedTeamID : queueAllTeamIDs)
+    {
+        selection.Init();
+        uint32 selfArenaTeamId = savedTeamID;
+        for (auto itr_team = _queuedGroups[bracket_id][groupType].begin();
+            itr_team != _queuedGroups[bracket_id][groupType].end(); ++itr_team)
+        {
+            GroupQueueInfo* groupInfo = *itr_team;
+            if (groupInfo->GroupId != selfArenaTeamId)
+                continue;
+            if (groupInfo->IsInvitedToBGInstanceGUID || !groupInfo->IsRated || groupInfo->GroupId == 0)
+                continue;
+            if (groupInfo->JoinType != gInfo->JoinType || groupInfo->Team == gInfo->Team)
+                continue;
+            selection.AddGroup(groupInfo, needCount);
+            if (selection.GetPlayerCount() >= needCount)
+            {
+                if (needBroadcast)
+                {
+                    std::string sendVSText = "sendVSText 2";
+                    sWorld->SendGlobalText(sendVSText.c_str(), NULL);
+                }
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+void BattlegroundQueue::RatedArenaAllPlayerBotEnter(uint8 bracketID)
+{
+    for (int i = 0; i < MAX_TEAMS; i++)
+    {
+        if (m_SelectionPools[i].GetPlayerCount() == 0)
+            continue;
+        for (GroupQueueInfo* gInfo : m_SelectionPools[i].SelectedGroups)
+        {
+            for (std::map<ObjectGuid, PlayerQueueInfo*>::iterator itQueueInfo = gInfo->Players.begin();
+                itQueueInfo != gInfo->Players.end();
+                itQueueInfo++)
+            {
+                if (Player* teamPlayer = ObjectAccessor::FindPlayer(itQueueInfo->first))
+                {
+                    if (!teamPlayer->IsPlayerBot())
+                        continue;
+                    if (PlayerBotSession* pSession = dynamic_cast<PlayerBotSession*>(teamPlayer->GetSession()))
+                    {
+                        BotGlobleSchedule schedule4(BotGlobleScheduleType::BGSType_EnterAA, 0);
+                        schedule4.parameter1 = gInfo->BgTypeId;
+                        schedule4.parameter2 = bracketID;
+                        schedule4.parameter3 = gInfo->JoinType;
+                        schedule4.parameter4 = 1;
+                        pSession->PushScheduleToQueue(schedule4);
+                    }
+                }
+            }
+        }
+    }
+}
+
+bool BattlegroundQueue::ExistRealPlayer(const PVPDifficultyEntry* bracketEntry, bool isRated)
+{
+    if (!bracketEntry)
+        return false;
+    for (QueuedPlayersMap::iterator itPlayer = _queuedPlayers.begin();
+        itPlayer != _queuedPlayers.end();
+        itPlayer++)
+    {
+        GroupQueueInfo* gInfo = itPlayer->second.GroupInfo;
+        if (gInfo)
+        {
+            if (gInfo->IsRated != isRated)
+                continue;
+        }
+        Player* player = ObjectAccessor::FindPlayer(itPlayer->first);
+        if (player && !player->IsPlayerBot())
+        {
+            uint32 level = player->getLevel();
+            if (level < bracketEntry->MinLevel || level > bracketEntry->MaxLevel)
+                continue;
+            for (uint8 i = 0; i < PLAYER_MAX_BATTLEGROUND_QUEUES; ++i)
+            {
+                uint8 bgQueueTypeId = player->GetBattlegroundQueueTypeId(i);
+                if (!bgQueueTypeId)
+                    continue;
+                if (!isRated)
+                {
+                    if (player->IsInvitedForBattlegroundQueueType(bgQueueTypeId))
+                        continue;
+                }
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool BattlegroundQueue::QueryNeedPlayerCount(uint16 bgTypeID, uint8 bracket_id, uint32 aaType, int32& needAlliance, int32& needHorde)
+{
+    if (bracket_id >= MS::Battlegrounds::MaxBrackets)
+        return false;
+    Battleground* bg_template = sBattlegroundMgr->GetBattlegroundTemplate(bgTypeID);
+    if (!bg_template)
+        return false;
+    PVPDifficultyEntry const* bracketEntry = sDB2Manager.GetBattlegroundBracketById(bg_template->GetMapId(), bracket_id);
+    if (!bracketEntry)
+        return false;
+
+    int32 maxNumber = bg_template->GetMaxPlayers();
+    if (bg_template->IsArena() && aaType > 0)
+        maxNumber = aaType * 2;
+    needAlliance = maxNumber / 2;
+    needHorde = maxNumber / 2;
+    auto& groupQueueAlliance = _queuedGroups[bracket_id][MS::Battlegrounds::QueueGroupTypes::NormalAlliance];
+    for (auto itGroup = groupQueueAlliance.begin(); itGroup != groupQueueAlliance.end(); itGroup++)
+    {
+        GroupQueueInfo* pgInfo = *itGroup;
+        //if (pgInfo->BgTypeId != bgTypeID)
+        //	continue;
+        if (aaType != 0)
+        {
+            if (pgInfo->JoinType != aaType)
+                continue;
+        }
+        needAlliance -= (int32)pgInfo->Players.size();
+    }
+    auto& groupQueueHorde = _queuedGroups[bracket_id][MS::Battlegrounds::QueueGroupTypes::NormalHorde];
+    for (auto itGroup = groupQueueHorde.begin(); itGroup != groupQueueHorde.end(); itGroup++)
+    {
+        GroupQueueInfo* pgInfo = *itGroup;
+        //if (pgInfo->BgTypeId != bgTypeID)
+        //	continue;
+        if (aaType != 0)
+        {
+            if (pgInfo->JoinType != aaType)
+                continue;
+        }
+        needHorde -= (int32)pgInfo->Players.size();
+    }
+    if (needAlliance < 0)
+        needAlliance = 0;
+    if (needHorde < 0)
+        needHorde = 0;
+    return true;
+}
+
+void BattlegroundQueue::AllPlayerBotLeaveQueueFromRatedArena(uint8 bracketID)
+{
+    auto& groupQueueAlliance = _queuedGroups[bracketID][MS::Battlegrounds::QueueGroupTypes::PremadeAlliance];
+    for (auto itGroup = groupQueueAlliance.begin(); itGroup != groupQueueAlliance.end(); itGroup++)
+    {
+        GroupQueueInfo* gInfo = *itGroup;
+        if (!gInfo->IsRated)
+            continue;
+        for (std::map<ObjectGuid, PlayerQueueInfo*>::iterator itQueueInfo = gInfo->Players.begin();
+            itQueueInfo != gInfo->Players.end();
+            itQueueInfo++)
+        {
+            if (Player* teamPlayer = ObjectAccessor::FindPlayer(itQueueInfo->first))
+            {
+                if (PlayerBotSession* pSession = dynamic_cast<PlayerBotSession*>(teamPlayer->GetSession()))
+                {
+                    BotGlobleSchedule schedule(BotGlobleScheduleType::BGSType_OutAAQueue, 0);
+                    schedule.parameter1 = MS::Battlegrounds::BattlegroundTypeId::ArenaAll;
+                    schedule.parameter2 = bracketID;
+                    schedule.parameter3 = gInfo->JoinType;
+                    pSession->PushScheduleToQueue(schedule);
+                }
+            }
+        }
+    }
+}
+
 void BattlegroundQueue::RemovePlayer(ObjectGuid guid, bool decreaseInvitedCount)
 {
     AddDelayedEvent(10, [=]() -> void
@@ -345,7 +634,7 @@ void BattlegroundQueue::RemovePlayerQueue(ObjectGuid guid, bool decreaseInvitedC
     std::list<GroupQueueInfo*>::iterator group_itr;
     uint32 index = MS::Battlegrounds::GetTeamIdByTeam(group->Team);
 
-    for (uint8 bracket_id_tmp = MS::Battlegrounds::MaxBrackets - 1; bracket_id_tmp >= 0 && bracketID == -1; --bracket_id_tmp)
+    for (int8 bracket_id_tmp = MS::Battlegrounds::MaxBrackets - 1; bracket_id_tmp >= 0 && bracketID == -1; --bracket_id_tmp)
     {
         for (uint32 j = index; j < MS::Battlegrounds::QueueGroupTypes::Max; j += MAX_TEAMS)
         {
@@ -827,7 +1116,7 @@ bool BattlegroundQueue::CheckSkirmishOrLFGBrawl(uint8 bracketID, bool isSkirmish
 {
     uint32 combinations[6][3] =// healers-tank-dd
     {
-        // skirmish
+        // 5v5
         {1, 1, 3},
 
         // 3v3
@@ -1091,69 +1380,49 @@ uint16 BattlegroundQueue::GenerateRandomMap(uint16 bgTypeId)
         return MS::Battlegrounds::BattlegroundTypeId::None;
     }
 
-    std::map<uint16, uint8>* selectionWeights = nullptr;
-
-    if (bl->InstanceType == MS::Battlegrounds::PvpInstanceType::Arena)
-        selectionWeights = sBattlegroundMgr->GetSelectionWeight(MS::Battlegrounds::IternalPvpTypes::Arena);
-    else if (bgTypeId == MS::Battlegrounds::BattlegroundTypeId::BattlegroundRandom || bgTypeId == MS::Battlegrounds::BattlegroundTypeId::RatedBattleground)
-        selectionWeights = sBattlegroundMgr->GetSelectionWeight(MS::Battlegrounds::IternalPvpTypes::Battleground);
-    else if (bgTypeId == MS::Battlegrounds::BattlegroundTypeId::BrawlArenaAll)
-        selectionWeights = sBattlegroundMgr->GetSelectionWeight(MS::Battlegrounds::IternalPvpTypes::Brawl);
-    else if (bgTypeId == MS::Battlegrounds::BattlegroundTypeId::BrawlAllSix)
-        selectionWeights = sBattlegroundMgr->GetSelectionWeight(MS::Battlegrounds::IternalPvpTypes::BrawlSix);
-
-    if (!selectionWeights || selectionWeights->empty())
-        return MS::Battlegrounds::BattlegroundTypeId::None;
-
-    uint32 weight = 0;
-
-    std::map<uint32, uint32> plrIgnoreWeights;
-    for (uint32 i = TEAM_ALLIANCE; i < MAX_TEAMS; i++)
-        for (std::list<GroupQueueInfo*>::const_iterator group = m_SelectionPools[TEAM_ALLIANCE + i].SelectedGroups.begin(); group != m_SelectionPools[TEAM_ALLIANCE + i].SelectedGroups.end(); ++group)
-            for (uint32 j : (*group)->ignore.map)
-                if (j)
-                    plrIgnoreWeights[j] += 1;
-
-    uint8 players = std::min(m_SelectionPools[TEAM_ALLIANCE].GetPlayerCount(), m_SelectionPools[TEAM_HORDE].GetPlayerCount());
-    std::map<uint16, uint8> weights;
-    uint32 loVote = 0;
-    uint16 loVoteType = MS::Battlegrounds::BattlegroundTypeId::None;
-    for (std::map<uint16, uint8>::const_iterator it = selectionWeights->begin(); it != selectionWeights->end(); ++it)
+    switch (bl->InstanceType)
     {
-        BattlemasterListEntry const* bl2 = sBattlemasterListStore.LookupEntry(it->first);
-        if (!bl2)
-            continue;
-
-        if (bgTypeId == MS::Battlegrounds::BattlegroundTypeId::RatedBattleground && bl2->RatedPlayers != 10)
-            continue;
-
-        if (bl2->MinPlayers > players && !sBattlegroundMgr->isTesting())
-            continue;
-
-        if (plrIgnoreWeights[bl2->MapID[0]] > 0)
+        case MS::Battlegrounds::PvpInstanceType::Battleground:
         {
-            if (!loVote || loVote > plrIgnoreWeights[bl2->MapID[0]])
-            {
-                loVoteType = it->first;
-                loVote = plrIgnoreWeights[bl2->MapID[0]];
-            }
-            continue;
+            uint16 bgs[] ={
+                MS::Battlegrounds::BattlegroundTypeId::BattlegroundAlteracValley,
+                MS::Battlegrounds::BattlegroundTypeId::BattlegroundWarsongGulch,
+                MS::Battlegrounds::BattlegroundTypeId::BattlegroundArathiBasin,
+                MS::Battlegrounds::BattlegroundTypeId::BattlegroundEyeOfTheStorm,
+                MS::Battlegrounds::BattlegroundTypeId::BattlegroundIsleOfConquest,
+                MS::Battlegrounds::BattlegroundTypeId::BattlegroundStrandOfTheAncients,
+                //MS::Battlegrounds::BattlegroundTypeId::BattlegroundTwinPeaks = 108,
+                //MS::Battlegrounds::BattlegroundTypeId::BattlegroundBattleForGilneas = 120,
+                //MS::Battlegrounds::BattlegroundTypeId::BattlegroundKotmoguTemplate = 699,
+                //MS::Battlegrounds::BattlegroundTypeId::BATTLEGROUND_CTF3 = 706,
+                //MS::Battlegrounds::BattlegroundTypeId::BattlegroundSilvershardMines = 708,
+                //MS::Battlegrounds::BattlegroundTypeId::BattlegroundDeepwindGorge = 754,
+            };
+
+            uint32 rand = ::urand(0, sizeof(bgs)/sizeof(bgs[0]) - 1);
+            return bgs[rand];
         }
 
-        weight += it->second;
-        weights[it->first] = it->second;
-    }
+        case MS::Battlegrounds::PvpInstanceType::Arena:
+        {
+            uint16 arenas[] ={
+                MS::Battlegrounds::BattlegroundTypeId::ArenaOldNagrandArena,
+                MS::Battlegrounds::BattlegroundTypeId::ArenaOldBladesEdgeArena,
+                MS::Battlegrounds::BattlegroundTypeId::ArenaRuinsOfLordaeron,
+                MS::Battlegrounds::BattlegroundTypeId::ArenaOldRingOfValor,
+                MS::Battlegrounds::BattlegroundTypeId::ArenaBladesEdge,
 
-    if (!weight)
-        return loVoteType;
+                MS::Battlegrounds::BattlegroundTypeId::ArenaDalaranSewers,
+                MS::Battlegrounds::BattlegroundTypeId::ArenaTolvir,
+                MS::Battlegrounds::BattlegroundTypeId::ArenaTheTigersPeak,
+                MS::Battlegrounds::BattlegroundTypeId::ArenaBlackrookHold,
+                MS::Battlegrounds::BattlegroundTypeId::ArenaNagrandArena,
+                MS::Battlegrounds::BattlegroundTypeId::ArenaAshamanesFall,
+            };
 
-    uint32 selectedWeight = urand(0, weight - 1);
-    weight = 0;
-    for (std::map<uint16, uint8>::const_iterator it = weights.begin(); it != weights.end(); ++it)
-    {
-        weight += it->second;
-        if (selectedWeight < weight)
-            return it->first;
+            uint32 rand = ::urand(0, sizeof(arenas)/sizeof(arenas[0]) - 1);
+            return arenas[rand];
+        }
     }
 
     return MS::Battlegrounds::BattlegroundTypeId::None;
@@ -1245,6 +1514,7 @@ void BattlegroundQueue::BattlegroundQueueUpdate(uint32 /*diff*/, uint16 bgTypeId
                 for (std::list<GroupQueueInfo*>::const_iterator citr = m_SelectionPools[TEAM_ALLIANCE + i].SelectedGroups.begin(); citr != m_SelectionPools[TEAM_ALLIANCE + i].SelectedGroups.end(); ++citr)
                     InviteGroupToBG(*citr, bg, (*citr)->Team);
 
+            RatedArenaAllPlayerBotEnter(bracketID);
             bg->StartBattleground();
         }
     }
@@ -1263,6 +1533,8 @@ void BattlegroundQueue::BattlegroundQueueUpdate(uint32 /*diff*/, uint16 bgTypeId
             for (uint32 i = TEAM_ALLIANCE; i < MAX_TEAMS; i++)
                 for (std::list<GroupQueueInfo*>::const_iterator citr = m_SelectionPools[TEAM_ALLIANCE + i].SelectedGroups.begin(); citr != m_SelectionPools[TEAM_ALLIANCE + i].SelectedGroups.end(); ++citr)
                     InviteGroupToBG(*citr, bg, (*citr)->Team);
+
+            RatedArenaAllPlayerBotEnter(bracketID);
 
             bg->StartBattleground();
 
@@ -1433,7 +1705,7 @@ BGQueueInviteEvent::BGQueueInviteEvent(ObjectGuid pl_guid, uint32 BgInstanceGUID
 bool BGQueueInviteEvent::Execute(uint64 /*e_time*/, uint32 /*p_time*/)
 {
     Player* player = ObjectAccessor::FindPlayer(m_PlayerGuid);
-    if (!player)
+    if (!player || player->IsPlayerBot())
         return true;
 
     Battleground* bg = sBattlegroundMgr->GetBattleground(m_BgInstanceGUID, m_BgTypeId);

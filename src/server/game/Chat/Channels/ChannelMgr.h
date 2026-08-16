@@ -32,6 +32,22 @@ class ChannelMgr
         ChannelMgr() { team = 0; }
         ~ChannelMgr();
 
+        static ChannelMgr* forTeam(uint32 team)
+        {
+            static ChannelMgr allianceChannelMgr;
+            static ChannelMgr hordeChannelMgr;
+            if (sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_INTERACTION_CHANNEL))
+                return &allianceChannelMgr;        // cross-faction
+
+            if (team == ALLIANCE)
+                return &allianceChannelMgr;
+
+            if (team == HORDE)
+                return &hordeChannelMgr;
+
+            return nullptr;
+        }
+
         uint32 team;
         typedef std::map<std::wstring, Channel*> ChannelMap;
 

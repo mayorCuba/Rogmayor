@@ -21,4 +21,14 @@ public:
     void InitVisibilityDistance() override;
     Battleground* GetBG();
     void SetBG(Battleground* bg);
+
+    void Update(const uint32 diff) override;
+    void InsureCommander(uint8 bgType) override;
+    void InitCommander() override;
+    void ResetCommander() override;
+    void ReadyCommander() override;
+    void StartCommander() override;
+    CommandBG* GetCommander(TeamId team) override;
+    CommandBG* m_pAllianceCommander{nullptr};
+    CommandBG* m_pHordeCommander{ nullptr };
 };

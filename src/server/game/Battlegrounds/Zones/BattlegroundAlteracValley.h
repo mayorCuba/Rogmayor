@@ -1467,7 +1467,15 @@ class BattlegroundAlteracValley : public Battleground
         uint32 GetTeamScore(TeamId teamId) const override { return m_TeamScores[teamId]; }
         uint32 GetMaxScore() const override { return BG_AV_SCORE_INITIAL_POINTS; }
         bool IsScoreIncremental() const override { return false; }
-    private:
+
+        bool NodeIsOccupyByTeamType(TeamId team, BG_AV_Nodes nodeType);
+        Creature const* GetAVAliveCaptainByTeam(TeamId team);
+        GameObject const* GetNodeObjectByEnemyType(Player* player, BG_AV_Nodes nodeType);
+        GameObject const* GetEnemyNodeObjectByRange(Player* player, uint32 range);
+
+        ObjectGuid m_CaptainGUID[2]{ ObjectGuid::Empty, ObjectGuid::Empty };
+
+    public:
         void PostUpdateImpl(uint32 diff) override;
 
         void EventPlayerAssaultsPoint(Player* player, uint32 object);
@@ -1515,5 +1523,6 @@ class BattlegroundAlteracValley : public Battleground
 
 };
 
+using BattlegroundAV = BattlegroundAlteracValley;
 #endif
 

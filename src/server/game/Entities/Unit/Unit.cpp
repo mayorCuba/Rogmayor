@@ -60,6 +60,7 @@
 #include "PetAI.h"
 #include "PetPackets.h"
 #include "Player.h"
+#include "PlayerAI.h"
 #include "PlayerDefines.h"
 #include "QuestDef.h"
 #include "ScenarioMgr.h"
@@ -82,6 +83,11 @@
 #include "World.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
+#include "BotGroupAI.h"
+#include "BotAI.h"
+#include "BotMovementAI.h"
+#include "FieldBotMgr.h"
+#include "Map.h"
 #include <numeric>
 
 float baseMoveSpeed[MAX_MOVE_TYPE] =
@@ -902,6 +908,21 @@ uint32 Unit::DealDamage(Unit* victim, uint32 damage, CleanDamage const* cleanDam
 
     if (IsAIEnabled)
         GetAI()->DamageDealt(victim, damage, damagetype);
+
+    if (victim && victim->ToPlayer())
+    {
+        Player* vicPlayer = victim->ToPlayer();
+        if (BotGroupAI* pGroupAI = dynamic_cast<BotGroupAI*>(vicPlayer->GetAI()))
+            pGroupAI->DamageEndure(this, damage, damagetype);
+        else if (BotBGAI* pBGAI = dynamic_cast<BotBGAI*>(vicPlayer->GetAI()))
+            pBGAI->DamageEndure(this, damage, damagetype);
+        else if (BotMovementAI* pMAI = dynamic_cast<BotMovementAI*>(vicPlayer->GetAI()))
+            pMAI->DamageEndure(this, damage, damagetype);
+        //else if (victim->GetMap()->IsDungeon() && !vicPlayer->InBattleground() && !victim->IsPlayerBot())
+        //{
+        //	damage *= 1.0f / (BotUtility::DungeonBotEndureModify * 0.95f);
+        //}
+    }
 
     // special temporary logs for find and ban bagusers and exploiters -> Anticheat
     auto check = [&]()
@@ -16204,6 +16225,65 @@ Unit* Creature::SelectVictim()
     }
 
     // enter in evade mode in other case
+    if (!IsPlayerBot() && !HasUnitState(UNIT_STATE_EVADE) && isInCombat())
+    {
+        if (this->getVictim())
+        {
+            if (getVictim()->IsInWorld())
+                if (getVictim()->GetTypeId() == TYPEID_PLAYER && !getVictim()->IsPlayerBot())
+                {
+                    if (getVictim()->ToPlayer()->isGameMaster())
+                    {
+                        AI()->EnterEvadeMode();
+                        return nullptr;
+                    }
+                }
+        }
+
+        if (CanHaveThreatList())
+        {
+            if (!m_ThreatManager.isThreatListEmpty())
+                target = m_ThreatManager.getHostilTarget();
+            if (target && canCreatureAttack(target))
+            {
+                if (target->IsPlayerBot() && !target->ToPlayer()->GetGroup())
+                {
+                    AI()->EnterEvadeMode();
+                    return nullptr;
+                }
+
+                //if (target->ToPlayer()->GetGroup() || target->ToPlayer() || target->IsPet() )
+                if ((!target->HasUnitState(UNIT_STATE_UNATTACKABLE) && GetDistance(target) <=60.0f)  && ((!target->HasAura(5384) && !target->HasAura(1784) && !target->HasAura(1785) && !target->HasAura(1786) && !target->HasAura(1787) && !target->HasAura(1856) && !target->HasAura(1857) && !target->HasAura(66))))
+                {
+                    //	AI()->AttackStart(target);
+                    return target;
+                }
+            }
+        }
+
+        if (!target)
+        {
+            if (getVictim() && !IsPlayerBot())
+            {
+                target=getVictim();
+                //GetVictim()->IsInWorld() &&
+                if (target->IsPlayerBot() && !target->ToPlayer()->GetGroup())
+                {
+                    AI()->EnterEvadeMode();
+                    return nullptr;
+                }
+                //if (target->ToPlayer()->GetGroup() || target->ToPlayer() || target->IsPet() )
+                if (this->canCreatureAttack(target))
+                    if ((!target->HasUnitState(UNIT_STATE_UNATTACKABLE) && GetDistance(target) <=60.0f) && ((!target->HasAura(5384)  && !target->HasAura(1784) && !target->HasAura(1785) && !target->HasAura(1786) && !target->HasAura(1787) && !target->HasAura(1856) && !target->HasAura(1857) && !target->HasAura(66))))
+                    {
+
+                        //AI()->AttackStart(GetVictim());
+                        return target;
+                    }
+            }
+        }
+    }
+
     AI()->EnterEvadeMode();
 
     return nullptr;
@@ -17480,28 +17560,80 @@ Unit* Unit::GetMover() const
 
 void Unit::UpdateCharmAI()
 {
-    if (IsPlayer())
-        return;
+    switch (GetTypeId())
+    {
+        case TYPEID_UNIT:
+            if (i_disabledAI) // disabled AI must be primary AI
+            {
+                if (!isCharmed())
+                {
+                    delete i_AI;
+                    i_AI = i_disabledAI;
+                    i_disabledAI = nullptr;
 
-    if (i_disabledAI) // disabled AI must be primary AI
-    {
-        if (!isCharmed())
-        {
-            delete i_AI;
-            i_AI = i_disabledAI;
-            i_disabledAI = nullptr;
-        }
-    }
-    else
-    {
-        if (isCharmed())
-        {
-            i_disabledAI = i_AI;
-            if (isPossessed() || IsVehicle())
-                i_AI = new PossessedAI(ToCreature());
+                    if (GetTypeId() == TYPEID_UNIT)
+                        ToCreature()->AI()->OnCharmed(false);
+                }
+            }
             else
-                i_AI = new PetAI(ToCreature());
+            {
+                if (isCharmed())
+                {
+                    i_disabledAI = i_AI;
+                    if (isPossessed() || IsVehicle())
+                        i_AI = new PossessedAI(ToCreature());
+                    else
+                        i_AI = new PetAI(ToCreature());
+                }
+            }
+            break;
+        case TYPEID_PLAYER:
+        {
+            if (isCharmed()) // if we are currently being charmed, then we should apply charm AI
+            {
+                i_disabledAI = i_AI;
+
+                UnitAI* newAI = nullptr;
+                // first, we check if the creature's own AI specifies an override playerai for its owned players
+                if (Unit* charmer = GetCharmer())
+                {
+                    if (Creature* creatureCharmer = charmer->ToCreature())
+                    {
+                        if (PlayerAI* charmAI = creatureCharmer->IsAIEnabled ? creatureCharmer->AI()->GetAIForCharmedPlayer(ToPlayer()) : nullptr)
+                            newAI = charmAI;
+                    }
+                    else
+                    {
+                        //TC_LOG_ERROR("misc", "Attempt to assign charm AI to player %s who is charmed by non-creature %s.", GetGUID().ToString().c_str(), GetCharmerGUID().ToString().c_str());
+                    }
+                }
+                if (!newAI) // otherwise, we default to the generic one
+                    newAI = new SimpleCharmedPlayerAI(ToPlayer());
+                i_AI = newAI;
+                newAI->OnCharmed(true);
+            }
+            else
+            {
+                if (i_AI)
+                {
+                    // we allow the charmed PlayerAI to clean up
+                    i_AI->OnCharmed(false);
+                    // then delete it
+                    delete i_AI;
+                }
+                else
+                {
+                    //TC_LOG_ERROR("misc", "Attempt to remove charm AI from player %s who doesn't currently have charm AI.", GetGUID().ToString().c_str());
+                }
+                // and restore our previous PlayerAI (if we had one)
+                i_AI = i_disabledAI;
+                i_disabledAI = nullptr;
+                // IsAIEnabled gets handled in the caller
+            }
+            break;
         }
+        default:
+            TC_LOG_ERROR(LOG_FILTER_UNITS, "Attempt to update charm AI for unit %s, which is neither player nor creature.", GetGUID().ToString().c_str());
     }
 }
 
@@ -17543,6 +17675,19 @@ void Unit::DeleteCharmInfo()
     m_charmInfo->RestoreState();
     delete m_charmInfo;
     m_charmInfo = nullptr;
+}
+
+bool Unit::IsPlayerBot()
+{
+    //if (GetTypeId() != TYPEID_PLAYER)
+    //	return false;
+    Player* player = ToPlayer();//dynamic_cast<Player*> (this);
+    if (!player)
+        return false;
+    WorldSession* pSession = player->GetSession();
+    if (!pSession)
+        return false;
+    return pSession->IsBotSession();
 }
 
 bool Unit::isFrozen() const
@@ -18910,6 +19055,9 @@ Unit* Unit::GetNearbyVictim(Unit* exclude, float dist, bool IsInFront, bool IsNe
 
 void Unit::CalcAttackTimePercentMod(WeaponAttackType att, float val)
 {
+    if (IsPlayerBot() && getLevel() < 50)
+        return;
+
     val /= GetTotalAuraMultiplier(SPELL_AURA_MOD_MELEE_AND_RANGED_ATTACK_SPEED_PCT);
     val /= GetTotalAuraMultiplier(SPELL_AURA_MOD_MELEE_ATTACK_SPEED);
     val *= GetFloatValue(UNIT_FIELD_MOD_TIME_RATE);
@@ -22266,6 +22414,15 @@ void Unit::Kill(Unit* victim, bool durabilityLoss, SpellInfo const* spellProto)
     victim->m_IsInKillingProcess = false;
 }
 
+float Unit::GetPositionZMinusOffset() const
+{
+    float offset = 0.0f;
+    if (HasUnitMovementFlag(MOVEMENTFLAG_HOVER))
+        offset = GetFloatValue(UNIT_FIELD_HOVER_HEIGHT);
+
+    return GetPositionZ() - offset;
+}
+
 void Unit::SetControlled(bool apply, UnitState state)
 {
     if (apply)
@@ -22586,6 +22743,18 @@ bool Unit::SetCharmedBy(Unit* charmer, CharmType type, AuraApplication const* au
         Player* player = ToPlayer();
         if (player->isAFK())
             player->ToggleAFK();
+
+        if (charmer->GetTypeId() == TYPEID_UNIT) // we are charmed by a creature
+        {
+            // change AI to charmed AI on next Update tick
+            NeedChangeAI = true;
+            if (IsAIEnabled)
+            {
+                IsAIEnabled = false;
+                player->AI()->OnCharmed(true);
+            }
+        }
+
         player->SetClientControl(this, false);
     }
 
@@ -23252,6 +23421,13 @@ void Unit::SetPhaseMask(uint32 newPhaseMask, bool update)
                 summon->SetPhaseMask(newPhaseMask, true);
 
     RemoveNotOwnSingleTargetAuras(newPhaseMask);            // we can lost access to caster or target
+    if (!IsPlayerBot() && ToPlayer())
+    {
+        if (Group* pGroup = ToPlayer()->GetGroup())
+        {
+            pGroup->OnLeaderChangePhase(ToPlayer(), newPhaseMask);
+        }
+    }
 
     // Update visibility after phasing pets and summons so they wont despawn
     if (update)

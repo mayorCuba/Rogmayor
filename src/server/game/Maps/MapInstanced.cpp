@@ -507,6 +507,8 @@ BattlegroundMap* MapInstanced::CreateBattleground(uint32 InstanceId, Battlegroun
     map->SetBG(bg);
     map->InitVisibilityDistance();
     bg->SetBgMap(map);
+    map->InsureCommander(bg->GetTypeID());
+    map->InitCommander();
 
     sTransportMgr->CreateInstanceTransports(map);
 

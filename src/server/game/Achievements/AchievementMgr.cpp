@@ -680,6 +680,9 @@ void AchievementMgr<Player>::SaveToDB(SQLTransaction& trans)
     if (!GetOwner())
         return;
 
+    if (GetOwner()->IsPlayerBot())
+        return;
+
     if (!_completedAchievements.empty())
     {
         bool need_execute = false;

@@ -151,7 +151,7 @@ class Channel
     bool _ownershipEnabled;
     bool _isSaved;
 
-
+public:
     bool IsOn(ObjectGuid who) const;
     bool IsBanned(ObjectGuid guid) const;
 

@@ -36,6 +36,7 @@ class WorldObject;
 class WorldPacket;
 class WorldSession;
 class FunctionProcessor;
+class BotGroupAI;
 
 namespace WorldPackets
 {
@@ -418,6 +419,24 @@ class Group
         InstanceGroupBind* GetBoundInstance(Difficulty difficulty, uint32 mapId);
         BoundInstancesMap& GetBoundInstances(Difficulty difficulty);
         void UpdateInstance(InstanceSave* save);
+
+        // Bot group AI
+        Rolls& GetAllRolls() { return RollId; }
+        void PlayerBotRoll(Player* player, const Roll& roll);
+        bool GiveAtGroupPos(ObjectGuid& guid, uint32& index, uint32& count);
+        bool GroupExistRealPlayer();
+        bool GroupExistPlayerBot();
+        bool AllGroupNotCombat();
+        bool AllGroupIsIDLE();
+        void AllGroupBotGiveXP(uint32 XP);
+        Unit* GetGroupTankTarget();
+        std::vector<ObjectGuid> GetGroupMemberFromNeedRevivePlayer(uint32 forMap);
+        void ResetRaidDungeon();
+        void ClearAllGroupForceFleeState();
+        void ProcessGroupBotCommand(Player* srcPlayer, std::string& cmd);
+        void OnLeaderChangePhase(Player* changeTarget, uint32 newPhase);
+        Creature* SearchSeduceCreature(Player* centerPlayer);
+        BotGroupAI* SearchExecuteSeduceBotAI();
 
         void BroadcastGroupUpdate();
         void SetReadyCheckCount(uint8 count);

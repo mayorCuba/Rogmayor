@@ -124,6 +124,12 @@ class GuidFormat;
 
 #pragma pack(push, 1)
 
+#define funlias(src, dst) template<typename... Ts>\
+auto dst(Ts&&... ts) -> decltype(src(std::forward<Ts>(ts)...)) { return src(std::forward<Ts>(ts)...); }
+
+#define const_funlias(src, dst) template<typename... Ts>\
+auto dst(Ts&&... ts) const -> decltype(src(std::forward<Ts>(ts)...)) { return src(std::forward<Ts>(ts)...); }
+
 class ObjectGuid
 {
     friend std::ostream& operator<<(std::ostream& stream, ObjectGuid const& guid);
@@ -195,6 +201,32 @@ class ObjectGuid
         bool IsSpell() const;
         bool IsCast() const;
         bool IsEvent() const;
+
+        const_funlias(IsEmpty, isEmpty)
+        const_funlias(IsCreature, isCreature)
+        const_funlias(IsPet, isPet)
+        const_funlias(IsVehicle, isVehicle)
+        const_funlias(IsCreatureOrPet, isCreatureOrPet)
+        const_funlias(IsCreatureOrVehicle, isCreatureOrVehicle)
+        const_funlias(IsCreatureOrPetOrVehicle, isCreatureOrPetOrVehicle)
+        const_funlias(IsAnyTypeCreature, isAnyTypeCreature)
+        const_funlias(IsPlayer, isPlayer)
+        const_funlias(IsUnit, isUnit)
+        const_funlias(IsItem, isItem)
+        const_funlias(IsGameObject, isGameObject)
+        const_funlias(IsDynamicObject, isDynamicObject)
+        const_funlias(IsCorpse, isCorpse)
+        const_funlias(IsAreaTrigger, isAreaTrigger)
+        const_funlias(IsLoot, isLoot)
+        const_funlias(IsMOTransport, isMOTransport)
+        const_funlias(IsAnyTypeGameObject, isAnyTypeGameObject)
+        const_funlias(IsParty, isParty)
+        const_funlias(IsGuild, isGuild)
+        const_funlias(IsSceneObject, isSceneObject)
+        const_funlias(IsConversation, isConversation)
+        const_funlias(IsSpell, isSpell)
+        const_funlias(IsCast, isCast)
+        const_funlias(IsEvent, isEvent)
 
         static TypeID GetTypeId(HighGuid high);
         TypeID GetTypeId() const;

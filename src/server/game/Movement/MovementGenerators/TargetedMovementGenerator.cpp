@@ -109,6 +109,18 @@ void TargetedMovementGeneratorMedium<T,D>::_setTargetLocation(T &owner)
     if (Creature* c = owner.ToCreature())
         forceDest |= c->isWorldBoss() || c->IsDungeonBoss();
 
+    if (!forceDest && owner.GetTypeId() == TYPEID_UNIT && !owner.IsPlayerBot() && !i_target->IsPlayerBot())
+    {
+        //TC_LOG_ERROR("misc", "SPMOVE1 ");
+        forceDest =(owner.GetTypeId() == TYPEID_UNIT && owner.ToCreature()->CanWalk()  && owner.ToCreature()->isInCombat() && owner.ToCreature()->CanSwim()  &&(owner.ToCreature()->IsInWater() ||  owner.ToCreature()->IsUnderWater()));
+    }
+
+    if (!forceDest && i_target->GetTypeId() == TYPEID_PLAYER && owner.GetTypeId() == TYPEID_UNIT && !owner.IsPlayerBot() && !i_target->IsPlayerBot())
+    {
+        //TC_LOG_ERROR("misc", "SPMOVE2 ");
+        forceDest =(owner.ToCreature()->CanWalk()  && owner.ToCreature()->isInCombat() && owner.ToCreature()->CanSwim()  &&(i_target->IsInWater() ||  i_target->IsUnderWater()));
+    }
+
     i_path->CalculatePath(x, y, z, forceDest);
 
     if (i_path->GetPathType() & PATHFIND_NOPATH && (owner.IsCreature() && ((Creature*)&owner)->isPet() && owner.HasUnitState(UNIT_STATE_FOLLOW)))

@@ -374,6 +374,20 @@ void InstanceSaveManager::ScheduleReset(bool add, time_t time, InstResetEvent ev
     _resetTimeLock.unlock();
 }
 
+void InstanceSaveManager::ForceGlobalReset(uint32 mapId, Difficulty difficulty)
+{
+    if (!sDB2Manager.GetDownscaledMapDifficultyData(mapId, difficulty))
+        return;
+    // remove currently scheduled reset times
+    ScheduleReset(false, 0, InstResetEvent(1, mapId, difficulty, 0));
+    ScheduleReset(false, 0, InstResetEvent(4, mapId, difficulty, 0));
+    // force global reset on the instance
+    SQLTransaction trans = CharacterDatabase.BeginTransaction();
+    ResetOrWarnAll(mapId, difficulty, trans);
+    CharacterDatabase.CommitTransaction(trans);
+    CharacterDatabase.WaitExecution();
+}
+
 void InstanceSaveManager::Update()
 {
     time_t now = time(nullptr);

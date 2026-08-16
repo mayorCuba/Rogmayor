@@ -51,6 +51,9 @@
 #include "WildBattlePet.h"
 #include "WorldStateMgr.h"
 #include "GuildMgr.h"
+#include "PlayerBotMgr.h"
+#include "FieldBotMgr.h"
+#include "BotGroupAI.h"
 
 namespace {
 
@@ -1083,6 +1086,9 @@ void Map::Update(const uint32 t_diff)
                 {
                     uint32 _ss = getMSTime();
                     player->Update(t_diff);
+                    if (!player->IsPlayerBot())
+                        sFieldBotMgr->Update(player->GetGUID());
+
                     uint32 _mssu = GetMSTimeDiffToNow(_ss);
                     VisitNearbyCellsOf(player);
                     uint32 _mss = GetMSTimeDiffToNow(_ss);
@@ -1328,7 +1334,7 @@ void Map::UpdateSessions(uint32 diff)
 
         if (!pSession->Update(diff, this))    // As interval = 0
         {
-            pSession->LogoutPlayer(true);
+            pSession->LogoutPlayer(true, "UpdateSessions");
             pSession->SetMap(nullptr);
             m_sessions.erase(itr);
         }
@@ -2314,7 +2320,7 @@ void Map::UnloadAll()
         if (WorldSessionPtr pSession = itr->second)
         {
             if (pSession->GetPlayer())
-                pSession->LogoutPlayer(true);
+                pSession->LogoutPlayer(true, "UnloadAll");
             pSession->SetMap(nullptr);
         }
     }
@@ -3365,21 +3371,21 @@ bool Map::isInLineOfSight(float x1, float y1, float z1, float x2, float y2, floa
         && _dynamicTree.isInLineOfSight({ x1, y1, z1 }, { x2, y2, z2 }, phases, dCallback);
 }
 
-bool Map::getObjectHitPos(std::set<uint32> const& phases, bool otherUsePlayerPhasingRules, Position startPos, Position destPos, float modifyDist, DynamicTreeCallback* dCallback /*= nullptr*/)
+bool Map::getObjectHitPos(std::set<uint32> const& phases, bool otherIsPlayer, Position startPos, Position destPos, float modifyDist, DynamicTreeCallback* dCallback /*= nullptr*/)
 {
     G3D::Vector3 resultPos;
     G3D::Vector3 _startPos = G3D::Vector3(startPos.m_positionX, startPos.m_positionY, startPos.m_positionZ);
     G3D::Vector3 _dstPos = G3D::Vector3(destPos.m_positionX, destPos.m_positionY, destPos.m_positionZ);
-    return _dynamicTree.getObjectHitPos(phases, otherUsePlayerPhasingRules, _startPos, _dstPos, resultPos, modifyDist, dCallback);
+    return _dynamicTree.getObjectHitPos(phases, otherIsPlayer, _startPos, _dstPos, resultPos, modifyDist, dCallback);
 }
 
-bool Map::getObjectHitPos(std::set<uint32> const& phases, bool otherUsePlayerPhasingRules, float x1, float y1, float z1, float x2, float y2, float z2, float& rx, float& ry, float& rz, float modifyDist, DynamicTreeCallback* dCallback /*= nullptr*/)
+bool Map::getObjectHitPos(std::set<uint32> const& phases, bool otherIsPlayer, float x1, float y1, float z1, float x2, float y2, float z2, float& rx, float& ry, float& rz, float modifyDist, DynamicTreeCallback* dCallback /*= nullptr*/)
 {
     G3D::Vector3 startPos = G3D::Vector3(x1, y1, z1);
     G3D::Vector3 dstPos = G3D::Vector3(x2, y2, z2);
 
     G3D::Vector3 resultPos;
-    bool result = _dynamicTree.getObjectHitPos(phases, otherUsePlayerPhasingRules, startPos, dstPos, resultPos, modifyDist, dCallback);
+    bool result = _dynamicTree.getObjectHitPos(phases, otherIsPlayer, startPos, dstPos, resultPos, modifyDist, dCallback);
     rx = resultPos.x;
     ry = resultPos.y;
     rz = resultPos.z;
@@ -4595,6 +4601,9 @@ bool Map::GetEntrancePos(int32& mapid, float& x, float& y)
 
 uint32 InstanceMap::GetMaxPlayers() const
 {
+    if (BotGroupAI::PVE_MAX_DUNGEON)
+        return 40;
+
     if (MapDifficultyEntry const* mapDiff = GetMapDifficulty())
     {
         if (mapDiff->MaxPlayers/* || IsRegularDifficulty()*/)    // Normal case (expect that regular difficulty always have correct maxplayers)

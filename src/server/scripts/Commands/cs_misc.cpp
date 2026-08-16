@@ -1251,7 +1251,11 @@ public:
         else
             handler->PSendSysMessage(LANG_COMMAND_KICKMESSAGE, playerName.c_str());
 
-        target->GetSession()->KickPlayer();
+        WorldSession* session = target->GetSession();
+        if (session->IsBotSession())
+            session->LogoutPlayer(false, "playerbot");
+        else
+            target->GetSession()->KickPlayer();
 
         return true;
     }

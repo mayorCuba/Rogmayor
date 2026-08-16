@@ -25,6 +25,7 @@
 #include "SpellScript.h"
 #include "SpellAuraEffects.h"
 #include "AreaTrigger.h"
+#include "PlayerAI.h"
 
 // Desecrated ground - 118009
 class spell_dk_desecrated_ground : public SpellScriptLoader

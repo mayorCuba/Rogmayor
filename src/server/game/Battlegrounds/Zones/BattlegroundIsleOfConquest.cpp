@@ -28,6 +28,7 @@
 #include "Transport.h"
 #include "MoveSplineInit.h"
 #include "WorldStatePackets.h"
+#include "BotAITool.h"
 
 enum ICBroadcastTexts
 {
@@ -476,6 +477,15 @@ bool BattlegroundIsleOfConquest::SetupBattleground()
 
     return true;
 }
+
+void BattlegroundIsleOfConquest::ResetBGSubclass()
+{
+    float scoreFinal = MAX_REINFORCEMENTS * BotUtility::BattlegroundScoreRate;
+    if (scoreFinal < 40) scoreFinal = 40;
+    for (uint8 i = 0; i < 2; ++i)
+        factionReinforcements[i] = scoreFinal;
+}
+
 
 void BattlegroundIsleOfConquest::HandleKillUnit(Creature* unit, Player* killer)
 {
@@ -1006,4 +1016,34 @@ WorldSafeLocsEntry const* BattlegroundIsleOfConquest::GetClosestGraveYard(Player
         good_entry = sWorldSafeLocsStore.LookupEntry(BG_IC_GraveyardIds[teamIndex + MAX_NODE_TYPES]);
 
     return good_entry;
+}
+
+GameObject const* BattlegroundIC::GetClosestEnemyFlagByRange(Player* player, float range)
+{
+    GameObject const* pTargetObject = NULL;
+    float mindist = 999999.0f;
+    for (uint8 i = 0; i < MAX_NODE_TYPES; ++i)
+    {
+        ICNodePoint& node = nodePoint[i];
+        if (node.faction == player->GetTeamId())
+            continue;
+        GameObject const* pObject = GetBGObject(node.gameobject_type);
+        if (!pObject)
+            continue;
+        float distance = pObject->GetDistance(player->GetPosition());
+        if (distance < range && distance < mindist)
+        {
+            mindist = distance;
+            pTargetObject = pObject;
+        }
+    }
+    return pTargetObject;
+}
+
+uint32 BattlegroundIC::GetNodeObjectType(uint32 type)
+{
+    if (type >= MAX_NODE_TYPES)
+        return 0;
+    ICNodePoint& node = nodePoint[type];
+    return node.gameobject_type;
 }

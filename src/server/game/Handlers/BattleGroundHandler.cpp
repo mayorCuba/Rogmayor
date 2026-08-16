@@ -27,6 +27,8 @@
 #include "WowTime.hpp"
 #include "GameEventMgr.h"
 #include "LFGMgr.h"
+ #include "PlayerBotMgr.h"
+ //#include "FieldBotMgr.h"
 
 void WorldSession::HandleBattlemasterHello(WorldPackets::NPC::Hello& packet)
 {
@@ -140,8 +142,16 @@ void WorldSession::HandleBattlemasterJoin(WorldPackets::Battleground::Join& pack
         player->SetQueueRoleMask(bracketEntry->RangeIndex, packet.RolesMask);
 
         WorldPackets::Battleground::BattlefieldStatusQueued queued;
-        sBattlegroundMgr->BuildBattlegroundStatusQueued(&queued, bg, player, player->AddBattlegroundQueueId(bgQueueTypeId), ginfo->JoinTime, bgQueue.GetAverageQueueWaitTime(ginfo, bracketEntry->RangeIndex), ginfo->JoinType, false);
+        auto queueSlot = player->AddBattlegroundQueueId(bgQueueTypeId);
+        sBattlegroundMgr->BuildBattlegroundStatusQueued(&queued, bg, player, queueSlot, ginfo->JoinTime, bgQueue.GetAverageQueueWaitTime(ginfo, bracketEntry->RangeIndex), ginfo->JoinType, false);
         SendPacket(queued.Write());
+
+        if (IsBotSession())
+        {
+            BotGlobleSchedule schedule4(BotGlobleScheduleType::BGSType_EnterBG, player->GetGUID());
+            schedule4.parameter1 = queueSlot;
+            dynamic_cast<PlayerBotSession*>(this)->PushScheduleToQueue(schedule4);
+        }
     }
     else
     {
@@ -151,6 +161,14 @@ void WorldSession::HandleBattlemasterJoin(WorldPackets::Battleground::Join& pack
 
         if (grp->GetLeaderGUID() != player->GetGUID())
             return;
+
+        if (grp->GroupExistPlayerBot())
+        {
+            std::string outString;
+            consoleToUtf8(std::string("当前状态无法小队加入！"), outString);
+            _player->Whisper(outString, Language::LANG_COMMON, _player->GetGUID());
+            return;
+        }
 
         ObjectGuid errorGuid;
         auto err = grp->CanJoinBattlegroundQueue(bg, bgQueueTypeId, 0, false, 0, errorGuid);
@@ -182,6 +200,8 @@ void WorldSession::HandleBattlemasterJoin(WorldPackets::Battleground::Join& pack
     }
 
     sBattlegroundMgr->ScheduleQueueUpdate(new QueueSchedulerItem(0, 0, bgQueueTypeId, queueID, bracketEntry->RangeIndex, Roles(packet.RolesMask), bracketEntry->MinLevel));
+    if (!IsBotSession())
+        sPlayerBotMgr->OnRealPlayerJoinBattlegroundQueue(queueID, _player->getLevel());
 }
 
 void WorldSession::HandlePVPLogData(WorldPackets::Battleground::NullCmsg& /*packet*/)
@@ -376,6 +396,9 @@ void WorldSession::HandleBattleFieldPort(WorldPackets::Battleground::Port& packe
         player->SetBattlegroundId(bg->GetInstanceID(), bgTypeId);
         player->SetBGTeam(ginfo.Team);
         sBattlegroundMgr->SendToBattleground(player, ginfo.IsInvitedToBGInstanceGUID, bgTypeId);
+
+        if (!IsBotSession())
+            sPlayerBotMgr->OnRealPlayerEnterBattleground(bgTypeId, _player->getLevel());
     }
     else // leave queue
     {
@@ -426,6 +449,14 @@ void WorldSession::HandleBattleFieldPort(WorldPackets::Battleground::Port& packe
 
         if (!ginfo.JoinType)
             sBattlegroundMgr->ScheduleQueueUpdate(new QueueSchedulerItem(ginfo.MatchmakerRating, ginfo.JoinType, bgQueueTypeId, bgTypeId, bracketEntry->RangeIndex));
+    
+        if (!IsBotSession())
+        {
+            if (bgTypeId != MS::Battlegrounds::BattlegroundTypeId::ArenaAll)
+                sPlayerBotMgr->OnRealPlayerLeaveBattlegroundQueue(bgTypeId, _player->getLevel());
+            else
+                sPlayerBotMgr->OnRealPlayerLeaveArenaQueue(bgTypeId, _player->getLevel(), 0);
+        }
     }
 }
 
@@ -437,6 +468,8 @@ void WorldSession::HandleLeaveBattlefield(WorldPackets::Battleground::NullCmsg& 
             if (bg->GetStatus() != STATUS_WAIT_LEAVE)
                 return;
 
+    if (!_player->IsPlayerBot())
+        sPlayerBotMgr->OnRealPlayerLeaveBattleground(_player);
     _player->LeaveBattleground();
 }
 
@@ -822,9 +855,17 @@ void WorldSession::HandleJoinSkirmish(WorldPackets::Battleground::JoinSkirmish& 
         BattlegroundQueue& bgQueue = sBattlegroundMgr->GetBattlegroundQueue(bgQueueTypeId);
         GroupQueueInfo* ginfo = bgQueue.AddGroup(player, nullptr, bgTypeId, bracketEntry, jointype);
 
+        auto queueSlot = player->AddBattlegroundQueueId(bgQueueTypeId);
         WorldPackets::Battleground::BattlefieldStatusQueued battlefieldStatus;
-        sBattlegroundMgr->BuildBattlegroundStatusQueued(&battlefieldStatus, bg, player, player->AddBattlegroundQueueId(bgQueueTypeId), ginfo->JoinTime, bgQueue.GetAverageQueueWaitTime(ginfo, bracketEntry->RangeIndex), jointype, false);
+        sBattlegroundMgr->BuildBattlegroundStatusQueued(&battlefieldStatus, bg, player, queueSlot, ginfo->JoinTime, bgQueue.GetAverageQueueWaitTime(ginfo, bracketEntry->RangeIndex), jointype, false);
         SendPacket(battlefieldStatus.Write());
+
+        if (IsBotSession())
+        {
+            BotGlobleSchedule schedule4(BotGlobleScheduleType::BGSType_EnterAA, player->GetGUID());
+            schedule4.parameter1 = queueSlot;
+            dynamic_cast<PlayerBotSession*>(this)->PushScheduleToQueue(schedule4);
+        }
     }
     else
     {

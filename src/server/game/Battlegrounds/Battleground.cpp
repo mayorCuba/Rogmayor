@@ -49,6 +49,8 @@
 #include "World.h"
 #include "WorldPacket.h"
 #include "WorldStatePackets.h"
+#include "PlayerBotSession.h"
+#include "CommandBG.h"
 #include <G3D/Quat.h>
 
 template<class Do>
@@ -322,7 +324,16 @@ inline void Battleground::_ProcessRessurect(uint32 diff)
                 player->CastSpell(player, SPELL_PET_SUMMONED, true);
 
             sObjectAccessor->ConvertCorpseForPlayer(*itr);
+
+            BattlegroundMap* pBGMap = GetBgMap();
+            if (pBGMap)
+            {
+                CommandBG* pCommander = pBGMap->GetCommander(player->GetTeamId());
+                if (pCommander)
+                    pCommander->OnPlayerRevive(player);
+            }
         }
+
         _resurrectQueue.clear();
     }
 }
@@ -418,11 +429,15 @@ inline void Battleground::_ProcessJoin(uint32 diff)
     {
         m_Events |= BG_STARTING_EVENT_2;
         SendBroadcastText(m_broadcastMessages[BG_STARTING_EVENT_SECOND], CHAT_MSG_BG_SYSTEM_NEUTRAL);
+        m_Map->InsureCommander(GetTypeID());
+        m_Map->ReadyCommander();
     }
     else if (GetStartDelayTime() <= (IsArena() ? m_messageTimer[BG_STARTING_EVENT_THIRD] / 2 : m_messageTimer[BG_STARTING_EVENT_THIRD]) && !(m_Events & BG_STARTING_EVENT_3))
     {
         m_Events |= BG_STARTING_EVENT_3;
         SendBroadcastText(m_broadcastMessages[BG_STARTING_EVENT_THIRD], CHAT_MSG_BG_SYSTEM_NEUTRAL);
+        m_Map->InsureCommander(GetTypeID());
+        m_Map->ReadyCommander();
     }
     else if (GetStartDelayTime() <= m_messageTimer[BG_STARTING_EVENT_FOURTH] && !(m_Events & BG_STARTING_EVENT_4))
     {
@@ -590,21 +605,9 @@ void Battleground::RewardHonorToTeam(uint32 Honor, uint32 TeamID)
 void Battleground::RewardReputationToTeam(uint32 factionIDAlliance, uint32 factionIDHorde, uint32 reputation, uint32 teamID)
 {
     if (FactionEntry const* factionEntry = sFactionStore.LookupEntry(teamID == ALLIANCE ? factionIDAlliance : factionIDHorde))
-    {
         for (auto const& itr : GetPlayers())
-		{
             if (Player* player = GetPlayerForTeam(teamID, itr, "RewardReputationToTeam"))
-            {
-                if (!player)
-                    continue;
-
-                if (player->GetNativeTeam() != teamID)
-                    continue;
-
                 player->GetReputationMgr().ModifyReputation(factionEntry, reputation);
-            }
-        }
-	}
 }
 
 void Battleground::UpdateWorldState(uint32 variableID, uint32 value, bool hidden /*= false*/)
@@ -779,6 +782,16 @@ void Battleground::EndBattleground(uint32 winner)
         player->CombatStopWithPets(true);
 
         BlockMovement(player);
+
+        if (player->IsPlayerBot())
+        {
+            PlayerBotSession* pSession = dynamic_cast<PlayerBotSession*>((WorldSession*)player->GetSession());
+            if (pSession)
+            {
+                BotGlobleSchedule schedule1(BotGlobleScheduleType::BGSType_LeaveBG, 0);
+                pSession->PushScheduleToQueue(schedule1);
+            }
+        }
 
         if (IsRBG())
         {
@@ -1361,7 +1374,32 @@ void Battleground::Reset()
     for (uint8 i = TEAM_ALLIANCE; i < MAX_TEAMS; ++i)
         _arenaTeamScores[i].Reset();
 
+    if (m_Map)
+    {
+        m_Map->InsureCommander(GetTypeID());
+        m_Map->ResetCommander();
+    }
+
     ResetBGSubclass();
+}
+
+bool Battleground::HasJoinNearGrave(Player* player)
+{
+    if (!player)
+        return false;
+    const Creature* pCreature = GetClosestGraveCreature(player);
+    if (!pCreature || !pCreature->isSpiritService())
+        return false;
+    GuidVector& ghostList = m_ReviveQueue[pCreature->GetGUID()];
+    if (ghostList.empty())
+        return false;
+    const ObjectGuid& playerGuid = player->GetGUID();
+    for (GuidVector::const_iterator itr = ghostList.begin(); itr != ghostList.end(); ++itr)
+    {
+        if ((*itr) == playerGuid)
+            return true;
+    }
+    return false;
 }
 
 void Battleground::RelocateDeadPlayers(ObjectGuid guideGuid)
@@ -1372,8 +1410,14 @@ void Battleground::RelocateDeadPlayers(ObjectGuid guideGuid)
         for (auto const& v : ghostList)
             if (Player* player = ObjectAccessor::FindPlayer(v))
                 if (WorldSafeLocsEntry const* closestGrave = GetClosestGraveYard(player))
+                {
                     player->SafeTeleport(GetMapId(), closestGrave->Loc.X, closestGrave->Loc.Y, closestGrave->Loc.Z, player->GetOrientation());
-
+                    if (player->IsPlayerBot())
+                    {
+                        //needInNewQueuePlayers.push_back(player);
+                        player->UpdatePosition(closestGrave->Loc.X, closestGrave->Loc.Y, closestGrave->Loc.Z, player->GetOrientation(), true);
+                    }
+                }
         ghostList.clear();
     }
 }
@@ -1383,6 +1427,12 @@ void Battleground::StartBattleground()
     m_StartTime = Milliseconds(0);
     m_LastResurrectTime = 0;
     AddToBGFreeSlotQueue();
+
+    if (m_Map)
+    {
+        m_Map->InsureCommander(GetTypeID());
+        m_Map->InitCommander();
+    }
 
     sBattlegroundMgr->AddBattleground(GetInstanceID(), GetTypeID(), this);
 }
@@ -2090,6 +2140,21 @@ void Battleground::SendBroadcastText(int32 broadcastTextID, ChatMsg type, WorldO
     Trinity::BroadcastTextBuilder builder(nullptr, type, broadcastTextID, target);
     Trinity::LocalizedPacketDo<Trinity::BroadcastTextBuilder> localizer(builder);
     BroadcastWorker(localizer);
+}
+
+bool Battleground::ExistRealPlayer()
+{
+    for (auto itPlayer = _players.begin();
+        itPlayer != _players.end();
+        itPlayer++)
+    {
+        Player* player = ObjectAccessor::FindPlayer(itPlayer->first);
+        if (player && !player->IsPlayerBot())
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 void Battleground::EndNow()

@@ -163,6 +163,7 @@ class InstanceSaveManager
         void LoadInstances();
 
         void ScheduleReset(bool add, time_t time, InstResetEvent event);
+        void ForceGlobalReset(uint32 mapId, Difficulty difficulty);
 
         void Update();
 

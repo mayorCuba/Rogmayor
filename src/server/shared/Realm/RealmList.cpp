@@ -151,8 +151,7 @@ void RealmList::UpdateRealms(boost::system::error_code const& error)
                 Field* fields = result->Fetch();
                 uint32 realmId = fields[0].GetUInt32();
                 std::string name = fields[1].GetString();
-                boost::asio::ip::tcp::resolver::query externalAddressQuery(boost::asio::ip::tcp::v4(), fields[2].GetString(), "",
-                    boost::asio::ip::resolver_query_base::all_matching);
+                boost::asio::ip::tcp::resolver::query externalAddressQuery(boost::asio::ip::tcp::v4(), fields[2].GetString(), "");
 
                 boost::system::error_code ec;
                 boost::asio::ip::tcp::resolver::iterator endPoint = _resolver->resolve(externalAddressQuery, ec);
@@ -164,8 +163,7 @@ void RealmList::UpdateRealms(boost::system::error_code const& error)
 
                 boost::asio::ip::address externalAddress = endPoint->endpoint().address();
 
-                boost::asio::ip::tcp::resolver::query localAddressQuery(boost::asio::ip::tcp::v4(), fields[3].GetString(), "",
-                    boost::asio::ip::resolver_query_base::all_matching);
+                boost::asio::ip::tcp::resolver::query localAddressQuery(boost::asio::ip::tcp::v4(), fields[3].GetString(), "");
                 endPoint = _resolver->resolve(localAddressQuery, ec);
                 if (endPoint == end || ec)
                 {
@@ -175,8 +173,7 @@ void RealmList::UpdateRealms(boost::system::error_code const& error)
 
                 boost::asio::ip::address localAddress = endPoint->endpoint().address();
 
-                boost::asio::ip::tcp::resolver::query localSubmaskQuery(boost::asio::ip::tcp::v4(), fields[4].GetString(), "",
-                    boost::asio::ip::resolver_query_base::all_matching);
+                boost::asio::ip::tcp::resolver::query localSubmaskQuery(boost::asio::ip::tcp::v4(), fields[4].GetString(), "");
                 endPoint = _resolver->resolve(localSubmaskQuery, ec);
                 if (endPoint == end || ec)
                 {

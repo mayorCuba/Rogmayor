@@ -624,10 +624,11 @@ class player_level_rewards : public PlayerScript
 public:
     player_level_rewards() : PlayerScript("player_level_rewards") { }
 
-    void OnLevelChanged(Player* player, uint8 oldLevel) override
+    void OnLevelChanged(Player* player, uint8 newLevel) override
     {
-        if (oldLevel == 109)
+        switch (newLevel)
         {
+        case 110:
             switch (player->getRace())
             {
             case RACE_VOID_ELF:
@@ -642,9 +643,8 @@ public:
             case RACE_HIGHMOUNTAIN_TAUREN:
                 AddQuestPlayer(player, 49783);
                 break;
-            default:
-                break;
             }
+            break;
         }
     }
 

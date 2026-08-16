@@ -65,7 +65,7 @@ public:
     bool CheckNormalMatchDeathMatch(uint8 bracketID, uint32 MinPlayers, uint32 MaxPlayers);
     bool CheckNormalMatch(Battleground* bg_template, uint8 bracketID, uint32 minPlayers, uint32 maxPlayers);
     bool CalculateSoloQTeams(uint8 bracketID);
-    bool SelectRatedTeams(uint32 bracket_id, GroupQueueInfo* & team1, GroupQueueInfo* & team2);
+    bool SelectRatedTeams(uint32 bracketID, GroupQueueInfo* & team1, GroupQueueInfo* & team2);
 
     uint16 GenerateRandomMap(uint16 bgTypeId);
     bool TryChooseCommandWithRoles(uint8 bracketID, uint8 teamId, uint8 healers, uint8 tanks, uint8 dd, uint8 teamIdPool);
@@ -77,6 +77,16 @@ public:
     bool GetPlayerGroupInfoData(ObjectGuid guid, GroupQueueInfo* ginfo);
     void PlayerInvitedToBGUpdateAverageWaitTime(GroupQueueInfo* ginfo, uint8 bracketID);
     uint32 GetAverageQueueWaitTime(GroupQueueInfo* ginfo, uint8 bracketID) const;
+
+    bool ExistQueueByRatedArena(ObjectGuid& guid, bool isRated);
+    bool CheckRatedArenaMatch(uint8 bracketID);
+    GroupQueueInfo* GetFirstRealPlayerGroupInfo(uint8 bracketID, uint8 groupType);
+    bool TryGatherPlayerBySelfRatedArena(uint8 bracketID, GroupQueueInfo* gInfo);
+    bool TryGatherPlayerByEnemyRatedArena(uint8 bracketID, GroupQueueInfo* gInfo, bool needBroadcast = false);
+    void RatedArenaAllPlayerBotEnter(uint8 bracketID);
+    bool ExistRealPlayer(const PVPDifficultyEntry* bracketEntry, bool isRated = false);
+    bool QueryNeedPlayerCount(uint16 bgTypeID, uint8 bracketID, uint32 aaType, int32& needAlliance, int32& needHorde);
+    void AllPlayerBotLeaveQueueFromRatedArena(uint8 bracketID);
 
     class SelectionPool
     {
@@ -116,6 +126,7 @@ public:
     void KillAllDelayedEvents();
 private:
 
+    typedef std::map<ObjectGuid, PlayerQueueInfo> QueuedPlayersMap;
     std::map<ObjectGuid, PlayerQueueInfo> _queuedPlayers;
     std::list<GroupQueueInfo*> _queuedGroups[MS::Battlegrounds::MaxBrackets][MS::Battlegrounds::QueueGroupTypes::Max];
     uint32 _waitTimes[MAX_TEAMS][MS::Battlegrounds::MaxBrackets][MS::Battlegrounds::CountOfPlayersToAverageWaitTime]{};

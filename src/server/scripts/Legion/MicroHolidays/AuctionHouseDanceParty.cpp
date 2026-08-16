@@ -1,8 +1,6 @@
 /*
 */
  
-#include "PrecompiledHeaders/ScriptPCH.h"
-
 enum eSay
 {
     SAY_PANDA,
@@ -205,13 +203,14 @@ struct npc_ashtar : ScriptedAI
     npc_ashtar(Creature* creature) : ScriptedAI(creature) {}
  
     EventMap events;
+    ObjectGuid guid;
 
     void Reset() override
     {
         events.Reset();
         events.RescheduleEvent(EVENT_1, 60000);
-        events.RescheduleEvent(EVENT_2, 1000);
         DoCast(243089);
+        me->AddDelayedEvent(1000, [=]() -> void { CleanPlace(); });
     }
  
     void CleanPlace()
@@ -236,15 +235,25 @@ struct npc_ashtar : ScriptedAI
         GetPlayerListInGrid(playerList, me, 12.0f);
         GetGameObjectListWithEntryInGrid(GoList, me, 269949, 100.0f);
 
-        for (auto& go : GoList)
-            go->SetPhaseMask(0, true);
-
-        for (auto& player : playerList)
+        if (!GoList.empty())
         {
-            if (!player->HasAura(243089) || !player->HasAura(248207))
+            for (auto& go : GoList)
             {
-                player->CastSpell(player, 243089, true);
-                player->AddAura(248207, player);
+                guid = go->GetGUID();
+                go->SetPhaseMask(0, true);
+                GoList.clear();
+            }
+        }
+
+        if (!playerList.empty())
+        {
+            for (auto& player : playerList)
+            {
+                if (!player->HasAura(243089) || !player->HasAura(248207))
+                {
+                    player->CastSpell(player, 243089, true);
+                    player->AddAura(248207, player);
+                }
             }
         }
     }
@@ -274,20 +283,21 @@ struct npc_ashtar : ScriptedAI
                 guard2->SetVisible(true);
             if (auto guard3 = me->FindNearestCreature(14376, 100.0f))
                 guard3->SetVisible(true);
-
-            std::list<GameObject*> GoList;
-            GetGameObjectListWithEntryInGrid(GoList, me, 269949, 100.0f);
-            for (auto& go : GoList)
+            if (auto go = GameObject::GetGameObject(*me, guid))
                 go->SetPhaseMask(1, true);
 
             std::list<Player*> playerList;
             GetPlayerListInGrid(playerList, me, 100.0f);
-            for (auto& player : playerList)
+
+            if (!playerList.empty())
             {
-                if (player->HasAura(243089) || player->HasAura(248207))
+                for (auto& player : playerList)
                 {
-                    player->RemoveAura(243089);
-                    player->RemoveAura(248207);
+                    if (player->HasAura(243089) || player->HasAura(248207))
+                    {
+                        player->RemoveAura(243089);
+                        player->RemoveAura(248207);
+                    }
                 }
             }
 
@@ -392,11 +402,6 @@ struct npc_ashtar : ScriptedAI
                 }
                 break;
             }
-            case EVENT_2:
-            {
-                CleanPlace();
-                break;
-            }
             }
         }
     }
@@ -471,13 +476,14 @@ struct npc_marla : ScriptedAI
     npc_marla(Creature* creature) : ScriptedAI(creature) {}
  
     EventMap events;
+    ObjectGuid guid;
 
     void Reset() override
     {
         events.Reset();
         events.RescheduleEvent(EVENT_1, 60000);
-        events.RescheduleEvent(EVENT_2, 1000);
         DoCast(243089);
+        me->AddDelayedEvent(1000, [=]() -> void { CleanPlace(); });
     }
  
     void EnterEvadeMode() override
@@ -501,15 +507,25 @@ struct npc_marla : ScriptedAI
         GetPlayerListInGrid(playerList, me, 12.0f);
         GetGameObjectListWithEntryInGrid(GoList, me, 270011, 100.0f);
 
-        for (auto& go : GoList)
-            go->SetPhaseMask(0, true);
-
-        for (auto& player : playerList)
+        if (!GoList.empty())
         {
-            if (!player->HasAura(243089) || !player->HasAura(248203))
+            for (auto& go : GoList)
             {
-                player->CastSpell(player, 243089, true);
-                player->AddAura(248203, player);
+                guid = go->GetGUID();
+                go->SetPhaseMask(0, true);
+                GoList.clear();
+            }
+        }
+
+        if (!playerList.empty())
+        {
+            for (auto& player : playerList)
+            {
+                if (!player->HasAura(243089) || !player->HasAura(248203))
+                {
+                    player->CastSpell(player, 243089, true);
+                    player->AddAura(248203, player);
+                }
             }
         }
     }
@@ -528,21 +544,21 @@ struct npc_marla : ScriptedAI
                 auctionist3->SetVisible(true);
             if (auto citizen = me->FindNearestCreature(83678, 100.0f))
                 citizen->SetVisible(true);
-
-            std::list<GameObject*> GoList;
-            GetGameObjectListWithEntryInGrid(GoList, me, 270011, 100.0f);
-            for (auto& go : GoList)
+            if (auto go = GameObject::GetGameObject(*me, guid))
                 go->SetPhaseMask(1, true);
 
             std::list<Player*> playerList;
             GetPlayerListInGrid(playerList, me, 100.0f);
 
-            for (auto& player : playerList)
+            if (!playerList.empty())
             {
-                if (player->HasAura(243089) || player->HasAura(248207))
+                for (auto& player : playerList)
                 {
-                    player->RemoveAura(243089);
-                    player->RemoveAura(248207);
+                    if (player->HasAura(243089) || player->HasAura(248207))
+                    {
+                        player->RemoveAura(243089);
+                        player->RemoveAura(248207);
+                    }
                 }
             }
 
@@ -657,11 +673,6 @@ struct npc_marla : ScriptedAI
                     me->AI()->DoAction(ACTION_9);
                     break;
                 }
-                break;
-            }
-            case EVENT_2:
-            {
-                CleanPlace();
                 break;
             }
             }

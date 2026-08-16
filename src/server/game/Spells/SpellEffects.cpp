@@ -2119,7 +2119,8 @@ void Spell::EffectTeleportUnits(SpellEffIndex effIndex)
         if (uint32 customLoadingScreenId = m_spellInfo->GetEffect(effIndex, m_diffMode)->MiscValue)
             player->SendDirectMessage(WorldPackets::Misc::CustomLoadScreen(m_spellInfo->Id, customLoadingScreenId).Write());
 
-        player->TeleportTo(mapid, x, y, z, orientation, unitTarget == m_caster ? TELE_TO_SPELL | TELE_TO_NOT_LEAVE_COMBAT : 0, m_spellInfo->Id);
+        if (!player->IsPlayerBot())
+            player->TeleportTo(mapid, x, y, z, orientation, unitTarget == m_caster ? TELE_TO_SPELL | TELE_TO_NOT_LEAVE_COMBAT : 0, m_spellInfo->Id);
     }
     else if (mapid == unitTarget->GetMapId())
         unitTarget->NearTeleportTo(x, y, z, orientation, unitTarget == m_caster);
@@ -6655,6 +6656,18 @@ void Spell::EffectLeap(SpellEffIndex /*effIndex*/)
     if (!m_targets.HasDst())
         return;
 
+    if (Player* playerCaster = m_caster->ToPlayer())
+    {
+        if (playerCaster->IsPlayerBot())
+        {
+            if (playerCaster->getClass() == Classes::CLASS_MAGE ||
+                playerCaster->getClass() == Classes::CLASS_ROGUE ||
+                playerCaster->getClass() == Classes::CLASS_WARLOCK ||
+                playerCaster->getClass() == Classes::CLASS_WARRIOR)
+                return;
+        }
+    }
+
     Position pos = static_cast<Position>(*m_targets.GetDstPos());
     unitTarget->AddUnitState(UNIT_STATE_JUMPING);
 
@@ -7326,7 +7339,6 @@ void Spell::EffectTransmitted(SpellEffIndex effIndex)
                     // Duration of the fishing bobber can't be higher than the Fishing channeling duration
                     duration = std::min(duration, duration - lastSec * IN_MILLISECONDS + FISHING_BOBBER_READY_TIME * IN_MILLISECONDS);
             }
-            
             break;
         }
         case GAMEOBJECT_TYPE_RITUAL:

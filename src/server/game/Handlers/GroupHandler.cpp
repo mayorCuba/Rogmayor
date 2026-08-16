@@ -21,6 +21,8 @@
 #include "GroupMgr.h"
 #include "SocialMgr.h"
 #include "BattlegroundMgr.h"
+#include "PlayerBotSession.h"
+#include "BotGroupAI.h"
 
 class Aura;
 
@@ -93,6 +95,17 @@ void WorldSession::HandlePartyInvite(WorldPackets::Party::PartyInviteClient& pac
     {
         SendPartyResult(PARTY_OP_INVITE, packet.TargetName, ERR_IGNORING_YOU_S);
         return;
+    }
+
+    WorldSession* pWorldSession = player->GetSession();
+    if (pWorldSession && player->IsPlayerBot())
+    {
+        PlayerBotSession* pSession = dynamic_cast<PlayerBotSession*>(pWorldSession);
+        if (pSession->HasSchedules())
+        {
+            SendPartyResult(PARTY_OP_INVITE, packet.TargetName, ERR_NOT_IN_GROUP);
+            return;
+        }
     }
 
     Group* group = c_player->GetGroup();
@@ -284,6 +297,9 @@ void WorldSession::HandleSetPartyLeader(WorldPackets::Party::SetPartyLeader& pac
         return;
 
     if (!group->IsLeader(GetPlayer()->GetGUID()) || player->GetGroup() != group)
+        return;
+
+    if (player->IsPlayerBot())
         return;
 
     // Prevent exploits with instance saves
@@ -511,6 +527,22 @@ void WorldSession::HandleDoReadyCheck(WorldPackets::Party::DoReadyCheck& packet)
     group->BroadcastPacket(readyCheckStarted.Write(), false, -1);
 
     group->OfflineReadyCheck();
+
+    // bot自动准备
+    Group::MemberSlotList const& memList = group->GetMemberSlots();
+    for (Group::MemberSlot const& slot : memList)
+    {
+        Player* player = ObjectAccessor::FindPlayer(slot.Guid);
+        if (!player || !player->isAlive() || !player->IsPlayerBot() || !player->IsInWorld())
+            continue;
+        WorldPackets::Party::ReadyCheckResponse response;
+        response.PartyGUID = group->GetGUID();
+        response.Player = player->GetGUID();
+        response.IsReady = true;
+        group->BroadcastReadyCheck(response.Write());
+        if (BotGroupAI* pAI = dynamic_cast<BotGroupAI*>(player->GetAI()))
+            pAI->ResetBotAI();
+    }
 }
 
 void WorldSession::HandleReadyCheckResponse(WorldPackets::Party::ReadyCheckResponseClient& packet)

@@ -43,6 +43,7 @@
 #include "GuildMgr.h"
 #include "NPCPackets.h"
 #include "MailPackets.h"
+#include "..\..\src\server\scripts\Custom\CustomTalkMenu.h"
 
 void WorldSession::HandleTabardVendorActivate(WorldPackets::NPC::Hello& packet)
 {
@@ -328,6 +329,8 @@ void WorldSession::HandleGossipSelectOption(WorldPackets::NPC::GossipSelectOptio
     uint32 _s = getMSTime();
     Creature* unit = nullptr;
     GameObject* go = nullptr;
+    Item* item = nullptr;
+
     if (packet.GossipUnit.IsCreatureOrVehicle())
     {
         unit = player->GetNPCIfCanInteractWith(packet.GossipUnit, UNIT_NPC_FLAG_NONE);
@@ -343,10 +346,28 @@ void WorldSession::HandleGossipSelectOption(WorldPackets::NPC::GossipSelectOptio
             return;
         }
     }
-    else
+    else if (packet.GossipUnit.IsItem())
     {
-        TC_LOG_DEBUG(LOG_FILTER_NETWORKIO, "WORLD: HandleGossipSelectOption - unsupported GUID %s", packet.GossipUnit.ToString());
-        return;
+        item = player->GetItemByGuid(packet.GossipUnit);
+        if (!item)
+        {
+            return;
+        }
+    }
+    else if (packet.GossipUnit.IsPlayer())
+    {
+        if (packet.GossipUnit != player->GetGUID())
+        {
+            return;
+        }
+        else
+        {
+            if (!item && !unit && !go)
+            {
+                sCustomTalkMenu->OnSelectMenuItem(_player, packet.GossipIndex);
+                return;
+            }
+        }
     }
 
     if (player->HasUnitState(UNIT_STATE_DIED))
@@ -371,7 +392,7 @@ void WorldSession::HandleGossipSelectOption(WorldPackets::NPC::GossipSelectOptio
             if (!sScriptMgr->OnGossipSelectCode(player, unit, player->PlayerTalkClass->GetGossipOptionSender(packet.GossipIndex), player->PlayerTalkClass->GetGossipOptionAction(packet.GossipIndex), packet.PromotionCode.c_str()))
                 player->OnGossipSelect(unit, packet.GossipIndex, packet.GossipID);
         }
-        else
+        else 
         {
             go->AI()->GossipSelectCode(player, packet.GossipID, packet.GossipIndex, packet.PromotionCode.c_str());
             sScriptMgr->OnGossipSelectCode(player, go, player->PlayerTalkClass->GetGossipOptionSender(packet.GossipIndex), player->PlayerTalkClass->GetGossipOptionAction(packet.GossipIndex), packet.PromotionCode.c_str());

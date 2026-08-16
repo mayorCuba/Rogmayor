@@ -501,7 +501,6 @@ bool PhaseMgr::IsConditionTypeSupported(ConditionTypes const conditionType)
         case CONDITION_ACTIVE_EVENT:
         case CONDITION_ON_TRANSPORT:
         case CONDITION_CLASS_HALL_ADVANCEMENT:
-        case CONDITION_SPEC_ID:
             return true;
         default:
             return false;

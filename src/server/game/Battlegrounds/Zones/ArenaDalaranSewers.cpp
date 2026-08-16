@@ -2,7 +2,8 @@
 #include "ArenaDalaranSewers.h"
 #include "Battleground.h"
 #include "Player.h"
-
+#include "AIWaypointsMgr.h"
+#include "BotAI.h"
 
 enum BattlegroundDSObjectTypes
 {
@@ -67,6 +68,9 @@ ArenaDalaranSewers::ArenaDalaranSewers() : _waterfallTimer(0), _waterfallKnockba
 {
     BgObjects.resize(BG_DS_OBJECT_MAX);
     BgCreatures.resize(BG_DS_NPC_MAX);
+
+    m_LMStartPoint = sAIWPMgr->FindAIWaypoint(72);
+    m_BLStartPoint = sAIWPMgr->FindAIWaypoint(73);
 }
 
 ArenaDalaranSewers::~ArenaDalaranSewers() = default;
@@ -186,7 +190,7 @@ void ArenaDalaranSewers::StartingEventOpenDoors()
     setPipeKnockBackCount(0);
 
     SpawnBGObject(BG_DS_OBJECT_WATER_2, RESPAWN_IMMEDIATELY);
-    DoorOpen(BG_DS_OBJECT_WATER_2);
+    DoorOpen(BG_DS_OBJECT_WATER_2); // Turn off collision
 
     // Turn off collision
     if (GameObject* gob = GetBgMap()->GetGameObject(BgObjects[BG_DS_OBJECT_WATER_1]))
@@ -194,9 +198,35 @@ void ArenaDalaranSewers::StartingEventOpenDoors()
 
     // Remove effects of Demonic Circle Summon
     for (auto const& itr : GetPlayers())
+    {
         if (Player* player = ObjectAccessor::FindPlayer(GetBgMap(), itr.first))
+        {
             if (player->HasAura(48018))
                 player->RemoveAurasDueToSpell(48018);
+
+            if (m_LMStartPoint && m_BLStartPoint)
+            {
+                AIWaypoint* telePoint = NULL;
+                if (player->GetTeamId() == TEAM_ALLIANCE)
+                    telePoint = m_LMStartPoint;
+                else if (player->GetTeamId() == TEAM_HORDE)
+                    telePoint = m_BLStartPoint;
+                if (telePoint)
+                {
+                    Position& telePos = telePoint->GetPosition();
+                    if (player->IsPlayerBot())
+                    {
+                        if (BotBGAI* pBotAI = dynamic_cast<BotBGAI*>(player->GetAI()))
+                            pBotAI->SetTeleport(telePos);
+                    }
+                    else
+                    {
+                        player->TeleportTo(player->GetMapId(), telePos.GetPositionX(), telePos.GetPositionY(), telePos.GetPositionZ(), player->GetOrientation());
+                    }
+                }
+            }
+        }
+    }
 
     Arena::StartingEventOpenDoors();
 }

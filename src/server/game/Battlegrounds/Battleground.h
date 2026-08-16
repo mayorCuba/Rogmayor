@@ -200,7 +200,7 @@ enum BattlegroundBuffObjects
 };
 
 static uint32 const Buff_Entries[3] = { BG_OBJECTID_SPEEDBUFF_ENTRY, BG_OBJECTID_REGENBUFF_ENTRY, BG_OBJECTID_BERSERKERBUFF_ENTRY };
-static Milliseconds const m_messageTimer[4] = { Minutes(2), Minutes(1), Seconds(30), Seconds(0) };
+static Milliseconds const m_messageTimer[4] = { Seconds(5), Seconds(3), Seconds(1), Seconds(0) };
 
 enum BattlegroundStatus
 {
@@ -290,7 +290,7 @@ public:
     Battleground();
     virtual ~Battleground();
 
-    void Update(uint32 diff);
+    virtual void Update(uint32 diff);
 
     virtual bool SetupBattleground() { return true; } 
     virtual void Reset();
@@ -378,6 +378,9 @@ public:
 
     void AddPlayerToResurrectQueue(ObjectGuid npc_guid, ObjectGuid playerGUID);
     void RemovePlayerFromResurrectQueue(ObjectGuid playerGUID);
+
+    bool HasJoinNearGrave(Player* player);
+    virtual Creature const* GetClosestGraveCreature(const Player* player) { return NULL; }
 
     virtual void RelocateDeadPlayers(ObjectGuid guideGuid);
 
@@ -550,6 +553,9 @@ public:
     void SendSpectateAddonsMsg(SpectatorAddonMsg& msg);
     void PreventAddingToQueueAgained(bool val) {m_InBGFreeSlotQueue = val;}
     uint8 GetMaxGroupSize() const { return m_maxGroupSize; }
+
+    bool ExistRealPlayer();
+
 protected:
     void EndNow();
     void PlayerAddedToBGCheckIfBGIsRunning(Player* player);

@@ -79,7 +79,7 @@ void WorldSession::HandlePetAction(WorldPackets::PetPackets::PetAction& packet)
         return;
 
     if (GetPlayer()->m_Controlled.size() == 1)
-        HandlePetActionHelper(pet, packet.PetGUID, spellID, flag, packet.TargetGUID, packet.ActionPosition);
+        HandlePetActionHelper(pet, packet.PetGUID, spellID, flag, packet.TargetGUID, &packet.ActionPosition.Pos);
     else
     {
         //If a pet is dismissed, m_Controlled will change
@@ -102,7 +102,7 @@ void WorldSession::HandlePetAction(WorldPackets::PetPackets::PetAction& packet)
         }
 
         for (auto const& itr : controlled)
-            HandlePetActionHelper(itr, packet.PetGUID, spellID, flag, packet.TargetGUID, packet.ActionPosition);
+            HandlePetActionHelper(itr, packet.PetGUID, spellID, flag, packet.TargetGUID, &packet.ActionPosition.Pos);
     }
 }
 
@@ -555,7 +555,7 @@ void WorldSession::SendStableResult(StableResultCode res)
     SendPacket(stableResult.Write());
 }
 
-void WorldSession::HandlePetActionHelper(Unit* pet, ObjectGuid petGuid, uint32 spellid, uint16 flag, ObjectGuid targetGuid, Position const& pos)
+void WorldSession::HandlePetActionHelper(Unit* pet, ObjectGuid petGuid, uint32 spellid, uint16 flag, ObjectGuid targetGuid, Position* pos)
 {
     CharmInfo* charmInfo = pet->GetCharmInfo();
     if (!charmInfo)
@@ -675,7 +675,7 @@ void WorldSession::HandlePetActionHelper(Unit* pet, ObjectGuid petGuid, uint32 s
                     pet->CombatStop(true);
                     pet->StopMoving();
                     pet->GetMotionMaster()->Clear(false);
-                    pet->GetMotionMaster()->MovePoint(0, pos);
+                    pet->GetMotionMaster()->MovePoint(0, *pos);
                     charmInfo->SetCommandState(COMMAND_MOVE_TO);
                     charmInfo->SetIsCommandAttack(false);
                     charmInfo->SetIsAtStay(true);

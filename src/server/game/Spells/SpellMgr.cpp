@@ -33,6 +33,7 @@
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 #include "World.h"
+#include "BotAITool.h"
 
 bool IsPrimaryProfessionSkill(uint32 skill)
 {
@@ -70,7 +71,7 @@ bool IsPartOfSkillLine(uint32 skillId, uint32 spellId)
 
 DiminishingGroup GetDiminishingReturnsGroupForSpell(SpellInfo const* spellproto, bool triggered)
 {
-    if (!spellproto || spellproto->IsPositive())
+    if (!spellproto || spellproto->IsPositive() || !BotUtility::ControllSpellDiminishing)
         return DIMINISHING_NONE;
 
     if (spellproto->HasAura(SPELL_AURA_MOD_TAUNT))
@@ -436,36 +437,38 @@ SpellChainNode const* SpellMgr::GetSpellChainNode(uint32 spell_id) const
 
 uint32 SpellMgr::GetFirstSpellInChain(uint32 spell_id) const
 {
-    if (SpellChainNode const* node = GetSpellChainNode(spell_id))
-        return node->first->Id;
+    SpellChainNode const* node = GetSpellChainNode(spell_id);
+    if (node == nullptr)
+        return spell_id;
 
-    return spell_id;
+    return node->first->Id;
 }
 
 uint32 SpellMgr::GetLastSpellInChain(uint32 spell_id) const
 {
-    if (SpellChainNode const* node = GetSpellChainNode(spell_id))
-        return node->last->Id;
+    SpellChainNode const* node = GetSpellChainNode(spell_id);
+    if (node == nullptr)
+        return spell_id;
 
-    return spell_id;
+    return node->last->Id;
 }
 
 uint32 SpellMgr::GetNextSpellInChain(uint32 spell_id) const
 {
-    if (SpellChainNode const* node = GetSpellChainNode(spell_id))
-        if (node->next)
-            return node->next->Id;
+    SpellChainNode const* node = GetSpellChainNode(spell_id);
+    if (node == nullptr || node->next == nullptr)
+        return 0;
 
-    return 0;
+    return node->next->Id;
 }
 
 uint32 SpellMgr::GetPrevSpellInChain(uint32 spell_id) const
 {
-    if (SpellChainNode const* node = GetSpellChainNode(spell_id))
-        if (node->prev)
-            return node->prev->Id;
+    SpellChainNode const* node = GetSpellChainNode(spell_id);
+    if (node == nullptr || node->prev == nullptr)
+        return 0;
 
-    return 0;
+    return node->prev->Id;
 }
 
 uint8 SpellMgr::GetSpellRank(uint32 spell_id) const
@@ -3539,6 +3542,17 @@ void SpellMgr::LoadSpellInfoStore()
 
     for (SpellEntry const* spellEntry : sSpellStore)
         mSpellInfoMap[spellEntry->ID] = new SpellInfo(loadData[spellEntry->ID], spellEntry, &visualsBySpell[spellEntry->ID]);
+
+    // New Spell, Arena Player Bot use
+    if (SpellEntry* newArenaEntry = BotUtility::BuildNewArenaSpellEntry())
+    {
+        if (mSpellInfoMap[newArenaEntry->ID])
+            delete mSpellInfoMap[newArenaEntry->ID];
+        mSpellInfoMap[newArenaEntry->ID] = new SpellInfo(loadData[newArenaEntry->ID], newArenaEntry, &visualsBySpell[newArenaEntry->ID]);
+        delete newArenaEntry;
+    }
+    BotUtility::BuildNewArenaHellSpells(mSpellInfoMap);
+    BotUtility::ModifySpecialSpells(mSpellInfoMap);
 
     for (SpellPowerEntry const* spellPower : sSpellPowerStore)
     {

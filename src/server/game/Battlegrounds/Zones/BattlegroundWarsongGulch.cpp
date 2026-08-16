@@ -846,6 +846,54 @@ void BattlegroundWarsongGulch::DoAction(uint32, ObjectGuid atGuid)
         }
 }
 
+void BattlegroundWS::HandleAreaTrigger(Player* player, uint32 trigger)
+{
+    if (GetStatus() != STATUS_IN_PROGRESS)
+        return;
+
+    //uint32 SpellId = 0;
+    //uint64 buff_guid = 0;
+    switch (trigger)
+    {
+        case 3686:                                          // Alliance elixir of speed spawn. Trigger not working, because located inside other areatrigger, can be replaced by IsWithinDist(object, dist) in Battleground::Update().
+            //buff_guid = BgObjects[BG_WS_OBJECT_SPEEDBUFF_1];
+            break;
+        case 3687:                                          // Horde elixir of speed spawn. Trigger not working, because located inside other areatrigger, can be replaced by IsWithinDist(object, dist) in Battleground::Update().
+            //buff_guid = BgObjects[BG_WS_OBJECT_SPEEDBUFF_2];
+            break;
+        case 3706:                                          // Alliance elixir of regeneration spawn
+            //buff_guid = BgObjects[BG_WS_OBJECT_REGENBUFF_1];
+            break;
+        case 3708:                                          // Horde elixir of regeneration spawn
+            //buff_guid = BgObjects[BG_WS_OBJECT_REGENBUFF_2];
+            break;
+        case 3707:                                          // Alliance elixir of berserk spawn
+            //buff_guid = BgObjects[BG_WS_OBJECT_BERSERKBUFF_1];
+            break;
+        case 3709:                                          // Horde elixir of berserk spawn
+            //buff_guid = BgObjects[BG_WS_OBJECT_BERSERKBUFF_2];
+            break;
+        case 3646:                                          // Alliance Flag spawn
+            if (_flagState[TEAM_HORDE] && !_flagState[TEAM_ALLIANCE])
+                if (GetFlagPickerGUID(TEAM_HORDE, 0) == player->GetGUID())
+                    EventPlayerCapturedFlag(player);
+            break;
+        case 3647:                                          // Horde Flag spawn
+            if (_flagState[TEAM_ALLIANCE] && !_flagState[TEAM_HORDE])
+                if (GetFlagPickerGUID(TEAM_ALLIANCE, 0) == player->GetGUID())
+                    EventPlayerCapturedFlag(player);
+            break;
+        case 3649:                                          // unk1
+        case 3688:                                          // unk2
+        case 4628:                                          // unk3
+        case 4629:                                          // unk4
+            break;
+    }
+
+    //if (buff_guid)
+    //    HandleTriggerBuff(buff_guid, player);
+}
+
 void BattlegroundWarsongGulch::UpdateFlagState(TeamId teamID, uint32 value, ObjectGuid flagKeeperGUID, uint8 j)
 {
     auto ws1 = teamID == TEAM_ALLIANCE ? WorldStates::BG_WS_FLAG_UNK_ALLIANCE : WorldStates::BG_WS_FLAG_UNK_HORDE;

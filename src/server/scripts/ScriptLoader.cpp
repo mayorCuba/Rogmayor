@@ -59,6 +59,7 @@ void AddSC_account_commandscript();
 void AddSC_achievement_commandscript();
 void AddSC_ban_commandscript();
 void AddSC_bf_commandscript();
+void AddSC_bot_commandscript();
 void AddSC_cast_commandscript();
 void AddSC_character_commandscript();
 void AddSC_cheat_commandscript();
@@ -1302,6 +1303,7 @@ void AddScripts()
     AddPandarieScripts();
     AddOutdoorPvPScripts();
     AddCustomScripts();
+    AddSC_bot_commandscript();
 #endif
 }
 

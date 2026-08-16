@@ -64,6 +64,7 @@
 #include "World.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
+#include "BotAITool.h"
 
 #define SPELL_SEARCHER_COMPENSATION 30.0f
 
@@ -3218,6 +3219,13 @@ SpellMissInfo Spell::DoSpellHitOnUnit(Unit* unit, uint32 effectMask, bool scaleA
     if (calcDiminishingReturns)
         m_diminishGroup = GetDiminishingReturnsGroupForSpell(m_spellInfo, m_triggeredByAuraSpell != nullptr);
 
+    if (m_diminishGroup != DiminishingGroup::DIMINISHING_NONE && m_caster != unit && m_caster->ToPlayer() &&
+        m_caster->ToPlayer()->IsPlayerBot() && m_caster->ToPlayer()->getClass() == Classes::CLASS_ROGUE)
+    {
+        if (m_diminishGroup == DiminishingGroup::DIMINISHING_STUN)
+            m_diminishGroup = DiminishingGroup::DIMINISHING_NONE;
+    }
+
     if (m_diminishGroup)
     {
         m_diminishLevel = unit->GetDiminishing(m_diminishGroup);
@@ -3796,7 +3804,7 @@ void Spell::preparePetCast(SpellCastTargets const* targets, Unit* target, Unit* 
     }
 }
 
-void Spell::prepare(SpellCastTargets const* targets)
+SpellCastResult Spell::prepare(SpellCastTargets const* targets)
 {
     if (m_CastItem)
     {
@@ -3848,7 +3856,7 @@ void Spell::prepare(SpellCastTargets const* targets)
         {
             SendCastResult(SPELL_FAILED_ERROR);
             finish(false);
-            return;
+            return SpellCastResult::SPELL_FAILED_SPELL_IN_PROGRESS;
         }
     }
 
@@ -3857,14 +3865,14 @@ void Spell::prepare(SpellCastTargets const* targets)
     {
         SendCastResult(SPELL_FAILED_SPELL_IN_PROGRESS);
         finish(false);
-        return;
+        return SpellCastResult::SPELL_FAILED_SPELL_IN_PROGRESS;
     }
 
     if (DisableMgr::IsDisabledFor(DISABLE_TYPE_SPELL, m_spellInfo->Id, m_caster))
     {
         SendCastResult(SPELL_FAILED_SPELL_UNAVAILABLE);
         finish(false);
-        return;
+        return SpellCastResult::SPELL_FAILED_SPELL_UNAVAILABLE;
     }
 
     LoadScripts();
@@ -3928,7 +3936,7 @@ void Spell::prepare(SpellCastTargets const* targets)
         SendCastResult(result);
 
         finish(false);
-        return;
+        return result;
     }
 
     // Prepare data for triggers
@@ -3964,7 +3972,7 @@ void Spell::prepare(SpellCastTargets const* targets)
         //TC_LOG_DEBUG(LOG_FILTER_SPELLS_AURAS, "Spell::prepare::checkcast fail. spell id %u res %u source %u customCastFlags %u mask %u, InterruptFlags %i", m_spellInfo->Id, SPELL_FAILED_MOVING, m_caster->GetEntry(), _triggeredCastFlags, m_targets.GetTargetMask(), m_spellInfo->InterruptFlags);
         SendCastResult(SPELL_FAILED_MOVING);
         finish(false);
-        return;
+        return SpellCastResult::SPELL_FAILED_MOVING;
     }
 
     // set timer base at cast time
@@ -4029,14 +4037,12 @@ void Spell::prepare(SpellCastTargets const* targets)
             TriggerGlobalCooldown();
 
         if (!m_casttime && m_spellInfo->HasAttribute(SPELL_ATTR0_CU_CAST_DIRECTLY))
-        {
             cast(true);
-            return;
-        }
         //item: first cast may destroy item and second cast causes crash
         if (!m_casttime && !m_spellInfo->Cooldowns.StartRecoveryTime && !m_castItemGUID && GetCurrentContainer() == CURRENT_GENERIC_SPELL)
             cast(true);
     }
+    return SPELL_CAST_OK;
 }
 
 void Spell::cancel()
@@ -6960,7 +6966,7 @@ SpellCastResult Spell::CheckCast(bool strict)
         if (castResult != SPELL_CAST_OK)
             return castResult;
 
-        if (target != m_caster)
+        if (target != m_caster && (!m_caster->IsPlayerBot() || m_caster->getClass() != Classes::CLASS_ROGUE))
         {
             // Must be behind the target
             if ((m_spellInfo->AttributesCu[0] & SPELL_ATTR0_CU_REQ_CASTER_BEHIND_TARGET) && target->HasInArc(static_cast<float>(M_PI), m_caster))
@@ -7093,6 +7099,17 @@ SpellCastResult Spell::CheckCast(bool strict)
     {
         castResult = CheckCasterAuras();
         if (castResult != SPELL_CAST_OK)
+            return castResult;
+    }
+
+    if (castResult != SPELL_CAST_OK)
+    {
+        if (m_caster->IsPlayerBot())
+        {
+            if (castResult != SPELL_FAILED_DONT_REPORT)
+                return castResult;
+        }
+        else
             return castResult;
     }
 
@@ -8272,6 +8289,7 @@ SpellCastResult Spell::CheckRange(bool strict)
     if (!strict && m_casttime == 0)
         return SPELL_CAST_OK;
 
+    bool isBot = m_caster->IsPlayerBot();
     uint32 range_type = 0;
     if (m_spellInfo->GetMisc(m_diffMode)->RangeEntry)
     {
@@ -8289,6 +8307,15 @@ SpellCastResult Spell::CheckRange(bool strict)
 
     if (Player* modOwner = m_caster->GetSpellModOwner())
         modOwner->ApplySpellMod(m_spellInfo->Id, SPELLMOD_RANGE, max_range, this);
+
+    if (isBot)
+    {
+        max_range *= 1.2f;
+        if (min_range > 1.0f)
+        {
+            min_range -= 1.0f;
+        }
+    }
 
     if (target && target != m_caster && !m_spellInfo->DontCheckDistance())
     {
@@ -8314,7 +8341,7 @@ SpellCastResult Spell::CheckRange(bool strict)
 
         if (_triggeredCastFlags != TRIGGERED_FULL_MASK)
         {
-            if (m_caster->IsPlayer() && (m_spellInfo->CastingReq.FacingCasterFlags & SPELL_FACING_FLAG_INFRONT) && !m_caster->HasInArc(static_cast<float>(M_PI), target))
+            if (m_caster->IsPlayer() && !isBot && (m_spellInfo->CastingReq.FacingCasterFlags & SPELL_FACING_FLAG_INFRONT) && !m_caster->HasInArc(static_cast<float>(M_PI), target))
                 return !(_triggeredCastFlags & TRIGGERED_DONT_REPORT_CAST_ERROR) ? SPELL_FAILED_UNIT_NOT_INFRONT : SPELL_FAILED_DONT_REPORT;
         }
     }
@@ -8498,7 +8525,7 @@ SpellCastResult Spell::CheckItems()
     // if not item target then required item must be equipped
     else
     {
-        if (m_caster->IsPlayer() && !m_caster->ToPlayer()->HasItemFitToSpellRequirements(m_spellInfo))
+        if (m_caster->IsPlayer() && !m_caster->IsPlayerBot() || m_caster->getClass() != Classes::CLASS_ROGUE && !m_caster->ToPlayer()->HasItemFitToSpellRequirements(m_spellInfo))
             return SPELL_FAILED_EQUIPPED_ITEM_CLASS;
     }
 
@@ -8932,32 +8959,35 @@ SpellCastResult Spell::CheckItems()
     // check weapon presence in slots for main/offhand weapons
     if (m_spellInfo->EquippedItemClass >= 0)
     {
-        // main hand weapon required
-        if (m_spellInfo->HasAttribute(SPELL_ATTR3_MAIN_HAND))
+        if (!m_caster->IsPlayerBot() || m_caster->ToPlayer()->getClass() != Classes::CLASS_ROGUE)
         {
-            Item* item = m_caster->ToPlayer()->GetWeaponForAttack(BASE_ATTACK);
+            // main hand weapon required
+            if (m_spellInfo->HasAttribute(SPELL_ATTR3_MAIN_HAND))
+            {
+                Item* item = m_caster->ToPlayer()->GetWeaponForAttack(BASE_ATTACK);
 
-            // skip spell if no weapon in slot or broken
-            if (!item || item->CantBeUse())
-                return (_triggeredCastFlags & TRIGGERED_DONT_REPORT_CAST_ERROR) ? SPELL_FAILED_DONT_REPORT : SPELL_FAILED_EQUIPPED_ITEM_CLASS;
+                // skip spell if no weapon in slot or broken
+                if (!item || item->CantBeUse())
+                    return (_triggeredCastFlags & TRIGGERED_DONT_REPORT_CAST_ERROR) ? SPELL_FAILED_DONT_REPORT : SPELL_FAILED_EQUIPPED_ITEM_CLASS;
 
-            // skip spell if weapon not fit to triggered spell
-            if (!item->IsFitToSpellRequirements(m_spellInfo))
-                return (_triggeredCastFlags & TRIGGERED_DONT_REPORT_CAST_ERROR) ? SPELL_FAILED_DONT_REPORT : SPELL_FAILED_EQUIPPED_ITEM_CLASS;
-        }
+                // skip spell if weapon not fit to triggered spell
+                if (!item->IsFitToSpellRequirements(m_spellInfo))
+                    return (_triggeredCastFlags & TRIGGERED_DONT_REPORT_CAST_ERROR) ? SPELL_FAILED_DONT_REPORT : SPELL_FAILED_EQUIPPED_ITEM_CLASS;
+            }
 
-        // offhand hand weapon required
-        if (m_spellInfo->HasAttribute(SPELL_ATTR3_REQ_OFFHAND))
-        {
-            Item* item = m_caster->ToPlayer()->GetWeaponForAttack(OFF_ATTACK);
+            // offhand hand weapon required
+            if (m_spellInfo->HasAttribute(SPELL_ATTR3_REQ_OFFHAND))
+            {
+                Item* item = m_caster->ToPlayer()->GetWeaponForAttack(OFF_ATTACK);
 
-            // skip spell if no weapon in slot or broken
-            if (!item || item->CantBeUse())
-                return (_triggeredCastFlags & TRIGGERED_DONT_REPORT_CAST_ERROR) ? SPELL_FAILED_DONT_REPORT : SPELL_FAILED_EQUIPPED_ITEM_CLASS;
+                // skip spell if no weapon in slot or broken
+                if (!item || item->CantBeUse())
+                    return (_triggeredCastFlags & TRIGGERED_DONT_REPORT_CAST_ERROR) ? SPELL_FAILED_DONT_REPORT : SPELL_FAILED_EQUIPPED_ITEM_CLASS;
 
-            // skip spell if weapon not fit to triggered spell
-            if (!item->IsFitToSpellRequirements(m_spellInfo))
-                return (_triggeredCastFlags & TRIGGERED_DONT_REPORT_CAST_ERROR) ? SPELL_FAILED_DONT_REPORT : SPELL_FAILED_EQUIPPED_ITEM_CLASS;
+                // skip spell if weapon not fit to triggered spell
+                if (!item->IsFitToSpellRequirements(m_spellInfo))
+                    return (_triggeredCastFlags & TRIGGERED_DONT_REPORT_CAST_ERROR) ? SPELL_FAILED_DONT_REPORT : SPELL_FAILED_EQUIPPED_ITEM_CLASS;
+            }
         }
     }
 
@@ -10538,6 +10568,13 @@ void Spell::TriggerGlobalCooldown()
             gcd = std::min<int32>(std::max<int32>(int32(float(gcd) * m_caster->GetFloatValue(UNIT_FIELD_MOD_HASTE_REGEN)), MIN_GCD), MAX_GCD);
 
         gcd = std::min<int32>(std::max<int32>(int32(float(gcd) * m_caster->GetFloatValue(UNIT_FIELD_MOD_TIME_RATE)), 500), 3000);
+    
+        // Arena Bot ArenaTeam GCD force 1
+        if (m_caster->IsPlayer() && BotUtility::ArenaIsHell && m_caster->IsPlayerBot() && m_caster->ToPlayer()->InArena())
+        {
+            if (m_caster->HasAura(ARENA_PLAYER_BOT_AURA))
+                gcd = MIN_GCD - 200;
+        }
     }
 
     // Only players or controlled units have global cooldown

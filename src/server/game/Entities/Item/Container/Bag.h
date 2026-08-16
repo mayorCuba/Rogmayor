@@ -24,6 +24,7 @@
 
 #include "Item.h"
 #include "ItemTemplate.h"
+class Map;
 
 class Bag : public Item
 {

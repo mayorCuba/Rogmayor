@@ -313,29 +313,35 @@ void WorldSession::HandleAcceptTrade(WorldPackets::Trade::AcceptTrade& acceptTra
     {
         if (Item* item = myTrade->GetItem(TradeSlots(i)))
         {
-            if (!item->CanBeTraded(false, true))
+            if (myTrade->IsNonPlayerBotTrade())
             {
-                info.Status = TRADE_STATUS_CANCELLED;
-                SendTradeStatus(info);
-                return;
-            }
+                if (!item->CanBeTraded(false, true))
+                {
+                    info.Status = TRADE_STATUS_CANCELLED;
+                    SendTradeStatus(info);
+                    return;
+                }
 
-            if (item->IsBindedNotWith(trader))
-            {
-                info.Status = TRADE_STATUS_FAILED;
-                info.BagResult = EQUIP_ERR_TRADE_BOUND_ITEM;
-                SendTradeStatus(info);
-                return;
+                if (item->IsBindedNotWith(trader))
+                {
+                    info.Status = TRADE_STATUS_FAILED;
+                    info.BagResult = EQUIP_ERR_TRADE_BOUND_ITEM;
+                    SendTradeStatus(info);
+                    return;
+                }
             }
         }
 
         if (Item* item = hisTrade->GetItem(TradeSlots(i)))
         {
-            if (!item->CanBeTraded(false, true))
+            if (hisTrade->IsNonPlayerBotTrade())
             {
-                info.Status = TRADE_STATUS_CANCELLED;
-                SendTradeStatus(info);
-                return;
+                if (!item->CanBeTraded(false, true))
+                {
+                    info.Status = TRADE_STATUS_CANCELLED;
+                    SendTradeStatus(info);
+                    return;
+                }
             }
         }
     }
@@ -436,8 +442,8 @@ void WorldSession::HandleAcceptTrade(WorldPackets::Trade::AcceptTrade& acceptTra
         WorldPackets::Trade::TradeStatus myCanCompleteInfo, hisCanCompleteInfo;
         uint32 ItemIDHis = 0;
         uint32 ItemIDMy = 0;
-        hisCanCompleteInfo.BagResult = trader->CanStoreItems(myItems, TRADE_SLOT_TRADED_COUNT, ItemIDHis);
-        myCanCompleteInfo.BagResult = _player->CanStoreItems(hisItems, TRADE_SLOT_TRADED_COUNT, ItemIDMy);
+        hisCanCompleteInfo.BagResult = trader->CanStoreItems(myItems, TRADE_SLOT_TRADED_COUNT, ItemIDHis, _player);
+        myCanCompleteInfo.BagResult = _player->CanStoreItems(hisItems, TRADE_SLOT_TRADED_COUNT, ItemIDMy, trader);
         hisCanCompleteInfo.ItemID = ItemIDHis;
         myCanCompleteInfo.ItemID = ItemIDMy;
 
@@ -710,6 +716,12 @@ void WorldSession::HandleInitiateTrade(WorldPackets::Trade::InitiateTrade& packe
     info.Status = TRADE_STATUS_PROPOSED;
     info.Partner = player->GetGUID();
     pOther->GetSession()->SendTradeStatus(info);
+
+    if (pOther->IsPlayerBot())
+    {
+        WorldPackets::Trade::NullCmsg cmd(std::move(WorldPacket()));
+        HandleBeginTrade(cmd);
+    }
 }
 
 void WorldSession::HandleSetTradeGold(WorldPackets::Trade::SetTradeGold& packet)
@@ -750,9 +762,12 @@ void WorldSession::HandleSetTradeItem(WorldPackets::Trade::SetTradeItem& packet)
     Item* item = _player->GetItemByPos(packet.PackSlot, packet.ItemSlotInPack);
     if (!item || (packet.TradeSlot != TRADE_SLOT_NONTRADED && !item->CanBeTraded(false, true)))
     {
-        info.Status = TRADE_STATUS_CANCELLED;
-        SendTradeStatus(info);
-        return;
+        if (myTrade->IsNonPlayerBotTrade())
+        {
+            info.Status = TRADE_STATUS_CANCELLED;
+            SendTradeStatus(info);
+            return;
+        }
     }
 
     // prevent place single item into many trade slots using cheating and client bugs
@@ -768,10 +783,13 @@ void WorldSession::HandleSetTradeItem(WorldPackets::Trade::SetTradeItem& packet)
 
     if (packet.TradeSlot != TRADE_SLOT_NONTRADED && item->IsBindedNotWith(myTrade->GetTrader()))
     {
-        info.Status = TRADE_STATUS_NOT_ON_TAPLIST;
-        info.TradeSlot = packet.TradeSlot;
-        SendTradeStatus(info);
-        return;
+        if (myTrade->IsNonPlayerBotTrade())
+        {
+            info.Status = TRADE_STATUS_NOT_ON_TAPLIST;
+            info.TradeSlot = packet.TradeSlot;
+            SendTradeStatus(info);
+            return;
+        }
     }
 
     myTrade->SetItem(TradeSlots(packet.TradeSlot), item);

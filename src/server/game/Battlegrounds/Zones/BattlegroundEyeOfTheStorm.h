@@ -73,6 +73,11 @@ const float EYObjectPos[][8] =
 
 enum EYBattlegroundPointsTrigger
 {
+    TR_BLOOD_ELF_POINT        = 4476,
+    TR_FEL_REAVER_POINT       = 4514,
+    TR_MAGE_TOWER_POINT       = 4516,
+    TR_DRAENEI_RUINS_POINT    = 4518,
+
     TR_BLOOD_ELF_BUFF       = 4568,
     TR_FEL_REAVER_BUFF      = 4569,
     TR_MAGE_TOWER_BUFF      = 4570,
@@ -162,6 +167,11 @@ enum EYBattlegroundObjectTypes
     BG_EY_OBJECT_TOWER_CAP_DRAENEI_RUINS        = 40,
     BG_EY_OBJECT_TOWER_CAP_MAGE_TOWER           = 41,
     BG_EY_OBJECT_FLAG_NETHERSTORM               = 42,
+    //BG_EY_OBJECT_FLAG_FEL_REAVER               = 43,
+    //BG_EY_OBJECT_FLAG_BLOOD_ELF                 = 44,
+    //BG_EY_OBJECT_FLAG_DRAENEI_RUINS             = 45,
+    //BG_EY_OBJECT_FLAG_MAGE_TOWER                = 46,
+
     //buffs
     BG_EY_OBJECT_SPEEDBUFF_FEL_REAVER,
     BG_EY_OBJECT_REGENBUFF_FEL_REAVER,
@@ -387,6 +397,10 @@ class BattlegroundEyeOfTheStorm : public Battleground
         uint32 GetTeamScore(TeamId teamId) const override { return m_TeamScores[teamId]; }
         uint32 GetMaxScore() const override { return BG_EY_MAX_TEAM_SCORE; }
         bool IsScoreIncremental() const override { return true; }
+
+        void HandleAreaTrigger(Player* player, uint32 trigger);
+        bool EYPointIsControl(uint32 team, uint32 pointIndex);
+
     private:
         void PostUpdateImpl(uint32 diff) override;
 
@@ -422,5 +436,7 @@ class BattlegroundEyeOfTheStorm : public Battleground
         uint32 m_brawlTimer;
         bool m_brawlAnnounceWas = false;
 };
+
+using BattlegroundEY = BattlegroundEyeOfTheStorm;
 #endif
 

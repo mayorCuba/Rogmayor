@@ -37,7 +37,14 @@ enum BG_AB_ObjectType
 {
     // for all 5 node points 8*5=40 objects
     BG_AB_OBJECT_BANNER                  = 0,
-
+    BG_AB_OBJECT_BANNER_NEUTRAL          = 0,
+    BG_AB_OBJECT_BANNER_CONT_A           = 1,
+    BG_AB_OBJECT_BANNER_CONT_H           = 2,
+    BG_AB_OBJECT_BANNER_ALLY             = 3,
+    BG_AB_OBJECT_BANNER_HORDE            = 4,
+    BG_AB_OBJECT_AURA_ALLY               = 5,
+    BG_AB_OBJECT_AURA_HORDE              = 6,
+    BG_AB_OBJECT_AURA_CONTESTED          = 7,
 
     BG_AB_OBJECT_GATE_A                  = 40,
     BG_AB_OBJECT_GATE_H                  = 41,
@@ -224,6 +231,9 @@ public:
     uint8 _GetCapturedNodesForTeam(TeamId teamID);
     void _NodeOccupied(uint8 node, TeamId team);
     void _NodeDeOccupied(uint8 node);
+    CapturePointInfo* GetABNodeState(uint32 abNode);
+    GameObject const* GetNearGameObjectFlag(const Player* player);
 };
 
+using BattlegroundAB = BattlegroundArathiBasin;
 #endif

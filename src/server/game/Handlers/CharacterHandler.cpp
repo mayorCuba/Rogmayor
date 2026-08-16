@@ -47,6 +47,12 @@
 #include "ArtifactPackets.h"
 #include "LoginQueryHolder.h"
 #include "GameEventMgr.h"
+#include "PlayerBotMgr.h"
+#include "FieldBotMgr.h"
+#include "OnlineMgr.h"
+#include "BotMovementAI.h"
+
+#include "MapManager.h"
 
 void WorldSession::HandleCharEnum(PreparedQueryResult result, bool isDeleted)
 {
@@ -454,6 +460,11 @@ void WorldSession::HandleCharCreateOpcode(WorldPackets::Character::CreateChar& c
 
             newChar.GetAchievementMgr()->ClearMap();
             newChar.CleanupsBeforeDelete();
+
+            if (IsBotSession())
+                sPlayerBotMgr->OnPlayerBotCreate(newChar.GetGUID(), GetAccountId(), newChar.GetName(), newChar.getGender(), newChar.getRace(), newChar.getClass(), newChar.getLevel());
+            else
+                sPlayerBotMgr->OnAccountBotCreate(newChar.GetGUID(), GetAccountId(), newChar.GetName(), newChar.getGender(), newChar.getRace(), newChar.getClass(), newChar.getLevel());
         };
 
         if (allowTwoSideAccounts && !skipCinematics && createInfo->Class != CLASS_DEATH_KNIGHT && createInfo->Class != CLASS_DEMON_HUNTER)
@@ -517,7 +528,7 @@ void WorldSession::HandleCharDeleteOpcode(WorldPackets::Character::DeleteChar& c
     sGuildFinderMgr->RemoveMembershipRequest(charDelete.Guid, ObjectGuid::Create<HighGuid::Guild>(guildId));
     Player::DeleteFromDB(charDelete.Guid, GetAccountId());
     sWorld->DeleteCharName(name);
-
+    sPlayerBotMgr->OnAccountBotDelete(charDelete.Guid, accountId);
     SendCharDelete(CHAR_DELETE_SUCCESS);
 
     // reset timer.
@@ -544,7 +555,8 @@ void WorldSession::HandlePlayerLoginOpcode(WorldPackets::Character::PlayerLogin&
 
     TC_LOG_DEBUG(LOG_FILTER_NETWORKIO, "Character (Guid: %s) logging in", playerLogin.Guid.ToString().c_str());
 
-    if (!CharCanLogin(playerLogin.Guid.GetCounter()))
+    //printf("%llu", playerLogin.Guid.GetCounter());
+    if (!IsBotSession() && !CharCanLogin(playerLogin.Guid.GetCounter()))
     {
         TC_LOG_ERROR(LOG_FILTER_NETWORKIO, "Account (%u) can't login with that character (%u).", GetAccountId(), playerLogin.Guid.GetGUIDLow());
         KickPlayer();
@@ -572,6 +584,7 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder* holder)
     // for send server info and strings (config)
     auto chH = ChatHandler(pCurrChar);
 
+    pCurrChar->m_bot = false;
     // "GetAccountId() == db stored account id" checked in LoadFromDB (prevent login not own character using cheating tools)
     if (!pCurrChar->LoadFromDB(playerGuid, holder))
     {
@@ -652,7 +665,6 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder* holder)
                     data.append("\nSET engineSurvey \"0\"");
             }
         }
-
         // set now time for invalidate cache on client and forced request
         aData1->Time = sWorld->GetGameTime();
         aData1->Data = data;
@@ -956,7 +968,34 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder* holder)
             player->SetStandState(UNIT_STAND_STATE_STAND);
 
         sScriptMgr->OnPlayerLogin(player, firstLogin);
+        if (IsBotSession())
+        {
+            sPlayerBotMgr->OnPlayerBotLogin(this, pCurrChar);
+        }
+        else
+        {
+            pCurrChar->IsAIEnabled = true;
+            pCurrChar->NeedChangeAI = false;
+            pCurrChar->SetAI(new BotMovementAI(pCurrChar));
+            int32 isok = 1;
+            if (isok>=1)
+            {
+                sPlayerBotMgr->LoginFriendBotByPlayer(pCurrChar);
+                sPlayerBotMgr->LoginGroupBotByPlayer(pCurrChar);
+            }
+            sFieldBotMgr->OnRealPlayerLogin(pCurrChar);
+
+        }
+
         player->SetChangeMap(false);
+
+        SetPlayer(player);
+
+        if (IsBotSession())
+        {
+            player->SendInitialPacketsAfterAddToMap(true);
+            m_playerLoading.Clear();
+        }
     });
 
     delete holder;
@@ -2277,4 +2316,408 @@ void WorldSession::HandleEngineSurvey(WorldPackets::Character::EngineSurvey& pac
                 KickPlayer();
         }
     }
+}
+
+void WorldSession::HandleBotPlayerLogin(LoginQueryHolder* holder)
+{
+    auto playerGuid = holder->GetGuid();
+
+    auto pCurrChar = new Player(this);
+    // for send server info and strings (config)
+    auto chH = ChatHandler(pCurrChar);
+
+    pCurrChar->m_bot = true;
+
+    // "GetAccountId() == db stored account id" checked in LoadFromDB (prevent login not own character using cheating tools)
+    if (!pCurrChar->LoadFromDB(playerGuid, holder))
+    {
+        SetPlayer(nullptr);
+        KickPlayer();                                       // disconnect client, player no set to session and it will not deleted or saved at kick
+        delete pCurrChar;                                   // delete it manually
+        delete holder;                                      // delete all unprocessed queries
+        m_playerLoading.Clear();
+        return;
+    }
+    SendTutorialsData();
+
+    sWorld->UpdateCharacterAccount(playerGuid.GetGUIDLow(), GetAccountId());
+
+    pCurrChar->GetMotionMaster()->Initialize();
+    pCurrChar->SendDungeonDifficulty();
+    pCurrChar->SetChangeMap(true);
+
+    WorldPackets::Character::LoginVerifyWorld loginVerifyWorld;
+    loginVerifyWorld.MapID = pCurrChar->GetMapId();
+    loginVerifyWorld.Pos = pCurrChar->GetPosition();
+    SendPacket(loginVerifyWorld.Write());
+
+    // load player specific part before send times
+    LoadAccountData(holder->GetPreparedResult(PLAYER_LOGIN_QUERY_LOADACCOUNTDATA), PER_CHARACTER_CACHE_MASK);
+
+    // rewrite client channel mask if not valid (autojoin LFG channel)
+    if (auto aData = GetAccountData(PER_CHARACTER_CHAT_CACHE))
+    {
+        auto data = aData->Data;
+
+        if (!data.empty())
+        {
+            boost::regex regEx("ZONECHANNELS[ \f\n\r\t\v][1-9][0-9]+");
+            boost::smatch res;
+            auto replace = false;
+            if (boost::regex_search(data, res, regEx))
+            {
+                std::string m = res[0];
+                auto channel = m.substr(12, m.size());
+                auto channelMask = std::stoi(channel);
+
+                if (channelMask != 0x2200003)
+                {
+                    // set now time for invalidate cache on client and forced request
+                    aData->Time = sWorld->GetGameTime();
+                    replace = true;
+                }
+            }
+
+            if (replace)
+                aData->Data = boost::regex_replace(data, regEx, "ZONECHANNELS 35651587");
+        }
+    }
+
+    // add special survey data
+    if (auto aData1 = GetAccountData(GLOBAL_CONFIG_CACHE))
+    {
+        std::string data = aData1->Data;
+
+        if (data.empty())
+            data.append("SET engineSurvey \"0\"");
+        else if (size_t pos = data.find("engineSurvey"))
+        {
+            if (pos != std::string::npos)
+            {
+                std::string surveyIdStr = data.substr(pos + 14, 1);
+                auto surveyID = std::stoi(surveyIdStr);
+                if (surveyID)
+                    data.replace(pos + 14, 1, "0");
+            }
+            else
+            {
+                if (data[data.size() - 1] == '\n')
+                    data.append("SET engineSurvey \"0\"");
+                else
+                    data.append("\nSET engineSurvey \"0\"");
+            }
+        }
+
+        // set now time for invalidate cache on client and forced request
+        aData1->Time = sWorld->GetGameTime();
+        aData1->Data = data;
+    }
+
+    WorldPackets::ClientConfig::AccountDataTimes accountDataTimes;
+    accountDataTimes.PlayerGuid = playerGuid;
+    accountDataTimes.ServerTime = uint32(sWorld->GetGameTime());
+    for (uint32 i = 0; i < NUM_ACCOUNT_DATA_TYPES; ++i)
+        accountDataTimes.AccountTimes[i] = uint32(GetAccountData(AccountDataType(i))->Time);
+
+    SendPacket(accountDataTimes.Write());
+
+    /// Send FeatureSystemStatus
+    {
+        WorldPackets::System::FeatureSystemStatus features;
+        features.ComplaintStatus = 2;
+        features.ScrollOfResurrectionRequestsRemaining = 1;
+        features.ScrollOfResurrectionMaxRequestsPerDay = 1;
+        features.TwitterPostThrottleLimit = 60;
+        features.TwitterPostThrottleCooldown = 20;
+        features.CfgRealmID = 2;
+        features.CfgRealmRecID = 0;
+        features.TokenPollTimeSeconds = 300;
+        features.TokenRedeemIndex = 0;
+        features.TokenBalanceAmount = 5500000;
+        features.VoiceEnabled = false;
+        features.ScrollOfResurrectionEnabled = false;
+        features.CharUndeleteEnabled = HasAuthFlag(AT_AUTH_FLAG_RESTORE_DELETED_CHARACTER);
+        features.BpayStoreEnabled = GetBattlePayMgr()->IsAvailable();
+        features.BpayStoreAvailable = GetBattlePayMgr()->IsAvailable();
+        features.BpayStoreDisabledByParentalControls = false;
+        features.ItemRestorationButtonEnabled = true;
+        features.RecruitAFriendSendingEnabled = false;
+        features.CommerceSystemEnabled = false;
+        features.BrowserEnabled = false;//  GetBattlePayMgr()->IsAvailable(); // Has to be false, otherwise client will crash if "Customer Support" is opened
+        features.TutorialsEnabled = true;
+        features.NPETutorialsEnabled = true;
+        features.RestrictedAccount = false;
+        features.TwitterEnabled = false;
+        features.Unk67 = true;
+        features.WillKickFromWorld = false;
+        features.KioskModeEnabled = false;
+        features.CompetitiveModeEnabled = false;
+        features.TokenBalanceEnabled = true;
+
+        features.EuropaTicketSystemStatus = boost::in_place();
+        features.EuropaTicketSystemStatus->ThrottleState.MaxTries = 10;
+        features.EuropaTicketSystemStatus->ThrottleState.PerMilliseconds = 60000;
+        features.EuropaTicketSystemStatus->ThrottleState.TryCount = 1;
+        features.EuropaTicketSystemStatus->ThrottleState.LastResetTimeBeforeNow = 4045221;
+        features.EuropaTicketSystemStatus->TicketsEnabled = true;
+        features.EuropaTicketSystemStatus->BugsEnabled = true;
+        features.EuropaTicketSystemStatus->ComplaintsEnabled = true;
+        features.EuropaTicketSystemStatus->SuggestionsEnabled = true;
+
+        features.QuickJoinConfig.ToastsDisabled = false;
+        features.QuickJoinConfig.ToastDuration = 7;
+        features.QuickJoinConfig.DelayDuration = 10;
+        features.QuickJoinConfig.QueueMultiplier = 1;
+        features.QuickJoinConfig.PlayerMultiplier = 1;
+        features.QuickJoinConfig.PlayerFriendValue = 5;
+        features.QuickJoinConfig.PlayerGuildValue = 1;
+        features.QuickJoinConfig.ThrottleInitialThreshold = 0;
+        features.QuickJoinConfig.ThrottleDecayTime = 60;
+        features.QuickJoinConfig.ThrottlePrioritySpike = 20;
+        features.QuickJoinConfig.ThrottleMinThreshold = 0;
+        features.QuickJoinConfig.ThrottlePvPPriorityNormal = 50;
+        features.QuickJoinConfig.ThrottlePvPPriorityLow = 1;
+        features.QuickJoinConfig.ThrottlePvPHonorThreshold = 10;
+        features.QuickJoinConfig.ThrottleLfgListPriorityDefault = 50;
+        features.QuickJoinConfig.ThrottleLfgListPriorityAbove = 100;
+        features.QuickJoinConfig.ThrottleLfgListPriorityBelow = 50;
+        features.QuickJoinConfig.ThrottleLfgListIlvlScalingAbove = 1;
+        features.QuickJoinConfig.ThrottleLfgListIlvlScalingBelow = 1;
+        features.QuickJoinConfig.ThrottleRfPriorityAbove = 100;
+        features.QuickJoinConfig.ThrottleRfIlvlScalingAbove = 1;
+        features.QuickJoinConfig.ThrottleDfMaxItemLevel = 850;
+        features.QuickJoinConfig.ThrottleDfBestPriority = 80;
+
+        SendPacket(features.Write());
+    }
+
+    // Send MOTD
+    {
+        WorldPackets::System::MOTD motd;
+        motd.Text = &sWorld->GetMotd();
+        SendPacket(motd.Write());
+
+        // send server info
+        if (sWorld->getIntConfig(CONFIG_ENABLE_SINFO_LOGIN) == 1)
+            chH.PSendSysMessage(GitRevision::GetFullVersion());
+
+        TC_LOG_DEBUG(LOG_FILTER_NETWORKIO, "WORLD: Sent server info");
+    }
+
+    SendSetTimeZoneInformation();
+
+    //QueryResult* result = CharacterDatabase.PQuery("SELECT guildid, rank FROM guild_member WHERE guid = '%u'", pCurrChar->GetGUIDLow());
+    if (PreparedQueryResult resultGuild = holder->GetPreparedResult(PLAYER_LOGIN_QUERY_LOADGUILD))
+    {
+        Field* fields = resultGuild->Fetch();
+        pCurrChar->SetInGuild(fields[0].GetUInt64());
+        pCurrChar->SetRank(fields[1].GetUInt8());
+        if (Guild* guild = sGuildMgr->GetGuildById(pCurrChar->GetGuildId()))
+            pCurrChar->SetGuildLevel(guild->GetLevel());
+    }
+    else if (pCurrChar->GetGuildId())                        // clear guild related fields in case wrong data about non existed membership
+    {
+        pCurrChar->SetInGuild(UI64LIT(0));
+        pCurrChar->SetRank(0);
+        pCurrChar->SetGuildLevel(0);
+    }
+
+    WorldPackets::Battleground::PVPSeason season;
+    season.PreviousSeason = sWorld->getIntConfig(CONFIG_ARENA_SEASON_ID) - 1;
+    if (sWorld->getBoolConfig(CONFIG_ARENA_SEASON_IN_PROGRESS))
+        season.CurrentSeason = sWorld->getIntConfig(CONFIG_ARENA_SEASON_ID);
+    SendPacket(season.Write());
+
+    auto sess = sWorld->FindSession(GetAccountId());
+    SetMap(pCurrChar->GetMap());
+    GetMap()->AddSession(sess);
+
+        {
+
+            if (!this)
+                return;
+
+            auto player = GetPlayer();
+            if (!player)
+                return;
+
+            auto chatHandler = ChatHandler(player);
+            player->SendInitialPacketsBeforeAddToMap();
+
+            WorldPackets::Artifact::ArtifactKnowledge artifactKnowledge;
+            artifactKnowledge.ArtifactCategoryID = ARTIFACT_CATEGORY_CLASS;
+            artifactKnowledge.KnowledgeLevel = player->GetCurrency(CURRENCY_TYPE_ARTIFACT_KNOWLEDGE);
+            SendPacket(artifactKnowledge.Write());
+
+            WorldPackets::Artifact::ArtifactKnowledge artifactKnowledgeFishingPole;
+            artifactKnowledgeFishingPole.ArtifactCategoryID = ARTIFACT_CATEGORY_FISH;
+            artifactKnowledgeFishingPole.KnowledgeLevel = 0;
+            SendPacket(artifactKnowledgeFishingPole.Write());
+
+            //Show cinematic at the first time that player login
+            bool firstLogin = !player->getCinematic(); // it's needed below
+            if (!player->getCinematic())
+            {
+                player->setCinematic(1);
+
+                if (ChrClassesEntry const* cEntry = sChrClassesStore.LookupEntry(player->getClass()))
+                {
+                    Position pos;
+                    player->GetPosition(&pos);
+                    if (player->getRace() == RACE_NIGHTBORNE)
+                        player->SendSpellScene(1900, nullptr, true, &pos);
+                    else if (player->getRace() == RACE_HIGHMOUNTAIN_TAUREN)
+                        player->SendSpellScene(1901, nullptr, true, &pos);
+                    else if (player->getRace() == RACE_VOID_ELF)
+                        player->SendSpellScene(1903, nullptr, true, &pos);
+                    else if (player->getRace() == RACE_LIGHTFORGED_DRAENEI)
+                        player->SendSpellScene(1902, nullptr, true, &pos);
+                    else if (player->getClass() == CLASS_DEMON_HUNTER) /// @todo: find a more generic solution
+                        player->SendMovieStart(469);
+                    else if (cEntry->CinematicSequenceID)
+                        player->SendCinematicStart(cEntry->CinematicSequenceID);
+                    else if (ChrRacesEntry const* rEntry = sChrRacesStore.LookupEntry(player->getRace()))
+                        player->SendCinematicStart(rEntry->CinematicSequenceID);
+
+                    // send new char string if not empty
+                    if (!sWorld->GetNewCharString().empty())
+                        chatHandler.PSendSysMessage("%s", sWorld->GetNewCharString().c_str());
+                }
+
+            }
+
+            if (!player->GetMap()->AddPlayerToMap(player) || !player->GetMap()->IsGarrison() && !player->CheckInstanceLoginValid())
+            {
+                if (AreaTriggerStruct const* at = sAreaTriggerDataStore->GetGoBackTrigger(player->GetMapId()))
+                    player->TeleportTo(at->target_mapId, at->target_X, at->target_Y, at->target_Z, player->GetOrientation());
+                else
+                    player->TeleportTo(player->m_homebindMapId, player->m_homebindX, player->m_homebindY, player->m_homebindZ, player->GetOrientation());
+            }
+
+            sObjectAccessor->AddObject(player);
+            //TC_LOG_DEBUG(LOG_FILTER_GENERAL, "Player %s added to Map.", player->GetName());
+
+            if (!player->HasPlayerExtraFlag(PLAYER_EXTRA_INVISIBLE_STATUS))
+            {
+                if (player->GetGuildId() != 0)
+                {
+                    if (Guild* guild = sGuildMgr->GetGuildById(player->GetGuildId()))
+                        guild->SendLoginInfo(this);
+                    else
+                    {
+                        // remove wrong guild data
+                        TC_LOG_ERROR(LOG_FILTER_GENERAL, "Player %s (GUID: %u) marked as member of not existing guild (id: %u), removing guild membership for player.", player->GetName(), player->GetGUIDLow(), player->GetGuildId());
+                        player->SetInGuild(0);
+                    }
+                }
+            }
+
+            player->UpdateVisibilityForPlayer();
+
+            auto stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHAR_ONLINE);
+            stmt->setUInt32(0, player->GetGUIDLow());
+            CharacterDatabase.Execute(stmt);
+
+            stmt = LoginDatabase.GetPreparedStatement(LOGIN_UPD_ACCOUNT_ONLINE);
+            stmt->setUInt32(0, GetAccountId());
+            LoginDatabase.Execute(stmt);
+
+            player->SetInGameTime(getMSTime());
+
+            if (auto group = player->GetGroup())
+            {
+                group->SendUpdate();
+                group->ResetMaxEnchantingLevel();
+            }
+
+            // friend status
+            if (!player->HasPlayerExtraFlag(PLAYER_EXTRA_INVISIBLE_STATUS))
+                sSocialMgr->SendFriendStatus(player, FRIEND_ONLINE, player->GetGUID(), true);
+
+            // Place character in world (and load zone) before some object loading
+            player->LoadCorpse();
+
+            // setting Ghost+speed if dead
+            if (player->m_deathState != ALIVE)
+            {
+                // not blizz like, we must correctly save and load player instead...
+                if (player->getRace() == RACE_NIGHTELF)
+                    player->CastSpell(player, 20584, true, nullptr);// auras SPELL_AURA_INCREASE_SPEED(+speed in wisp form), SPELL_AURA_INCREASE_SWIM_SPEED(+swim speed in wisp form), SPELL_AURA_TRANSFORM (to wisp form)
+                player->CastSpell(player, 8326, true, nullptr);     // auras SPELL_AURA_GHOST, SPELL_AURA_INCREASE_SPEED(why?), SPELL_AURA_INCREASE_SWIM_SPEED(why?)
+
+                player->SetWaterWalking(true);
+            }
+
+            player->SendOperationsAfterDelay(OAD_LOAD_PET);
+
+            // Set FFA PvP for non GM in non-rest mode
+            if (sWorld->IsFFAPvPRealm() && !player->isGameMaster() && !player->HasFlag(PLAYER_FIELD_PLAYER_FLAGS, PLAYER_FLAGS_RESTING))
+            {
+                player->SetByteFlag(UNIT_FIELD_BYTES_2, UNIT_BYTES_2_OFFSET_PVP_FLAG, UNIT_BYTE2_FLAG_FFA_PVP);
+                player->SetGroupUpdateFlag(GROUP_UPDATE_FLAG_STATUS);
+            }
+
+            player->UpdatePvPState(true);
+
+            if (player->HasFlag(PLAYER_FIELD_PLAYER_FLAGS, PLAYER_FLAGS_IN_PVP) && !player->IsFFAPvP())
+            {
+                player->ApplyModFlag(PLAYER_FIELD_PLAYER_FLAGS, PLAYER_FLAGS_IN_PVP, false);
+                player->ApplyModFlag(PLAYER_FIELD_PLAYER_FLAGS, PLAYER_FLAGS_PVP_TIMER, true);
+                if (!player->pvpInfo.inHostileArea && player->IsPvP())
+                    player->pvpInfo.endTimer = time(nullptr);
+            }
+
+            if (player->HasFlag(PLAYER_FIELD_PLAYER_FLAGS, PLAYER_FLAGS_CONTESTED_PVP))
+                player->SetContestedPvP();
+
+            // Apply at_login requests
+            if (player->HasAtLoginFlag(AT_LOGIN_RESET_SPELLS))
+            {
+                player->resetSpells();
+                SendNotification(LANG_RESET_SPELLS);
+            }
+
+            if (player->HasAtLoginFlag(AT_LOGIN_RESET_TALENTS))
+            {
+                player->ResetTalentSpecialization();
+                player->ResetTalents(true);
+                player->SendTalentsInfoData(false);              // original talents send already in to SendInitialPacketsBeforeAddToMap, resend reset state
+                SendNotification(LANG_RESET_TALENTS);
+            }
+
+            if (player->HasAtLoginFlag(AT_LOGIN_FIRST))
+            {
+                player->RemoveAtLoginFlag(AT_LOGIN_FIRST);
+                player->CreateDefaultPet();
+            }
+
+            // show time before shutdown if shutdown planned.
+            if (sWorld->IsShuttingDown())
+                sWorld->ShutdownMsg(true, player);
+
+            if (sWorld->getBoolConfig(CONFIG_ALL_TAXI_PATHS))
+                player->SetTaxiCheater(true);
+
+            if (player->isGameMaster())
+                SendNotification(LANG_GM_ON);
+
+            // Hackfix Remove Talent spell - Remove Glyph spell
+            player->learnSpell(111621, false); // Reset Glyph
+            player->learnSpell(113873, false); // Reset Talent
+
+            TC_LOG_INFO(LOG_FILTER_CHARACTER, "Account: %d (IP: %s) Login Character:[%s] (GUID: %u) Level: %d", this->GetAccountId(), GetRemoteAddress().c_str(), player->GetName(), player->GetGUIDLow(), player->getLevel());
+
+            if (!player->IsStandState() && !player->HasUnitState(UNIT_STATE_STUNNED))
+                player->SetStandState(UNIT_STAND_STATE_STAND);
+
+            sScriptMgr->OnPlayerLogin(player, firstLogin);
+            player->SetChangeMap(false);
+
+            SetPlayer(player);
+
+            TC_LOG_INFO(LOG_FILTER_SERVER_LOADING, "player bot 00000000000=%s Login...", player->GetName());
+
+        }
+
+    delete holder;
 }

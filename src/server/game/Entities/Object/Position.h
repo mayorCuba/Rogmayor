@@ -19,16 +19,20 @@
 #define Trinity_game_Position_h__
 
 #include "Common.h"
+#include "DBCEnums.h"
+#include <G3D/Vector3.h>
 #include <vector>
 
 class ByteBuffer;
 class Transport;
+class WorldObject;
 
 struct Position
 {
     Position(float x = 0, float y = 0, float z = 0, float o = 0, float h = 0);
     Position(Position const& loc);
     Position(DBCPosition4D const& dbcLoc);
+    Position(G3D::Vector3 const& v3) : m_positionX(v3.x), m_positionY(v3.y), m_positionZ(v3.z), m_orientation(0) {}
 
     struct XY;
     struct XYZ;
@@ -82,6 +86,10 @@ struct Position
     virtual void GetPosition(float& x, float& y, float& z, Transport* transport = nullptr) const;
     virtual void GetPosition(float& x, float& y, float& z, float& o, Transport* transport = nullptr) const;
     virtual void GetPosition(Position* pos, Transport* transport = nullptr) const;
+    G3D::Vector3 GetVector3() const
+    {
+        return G3D::Vector3(m_positionX, m_positionY, m_positionZ);
+    }
 
     Streamer<XY> PositionXYStream();
     ConstStreamer<XY> PositionXYStream() const;

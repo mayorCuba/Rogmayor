@@ -60,6 +60,7 @@
 #include "WorldPacket.h"
 #include "WorldSession.h"
 #include "WorldSocket.h"
+#include "PlayerBotMgr.h"
 
 #define MAX_PROCESSED_PACKETS_IN_SAME_WORLDSESSION_UPDATE 100
 
@@ -97,7 +98,7 @@ tokens(accountTokenMap), _referer(referer)
         ResetTimeOutTime();
         LoginDatabase.PExecute("UPDATE account SET online = 1 WHERE id = %u;", GetAccountId());     // One-time query
     }
-
+    
     m_Socket[CONNECTION_TYPE_REALM] = sock;
     _instanceConnectKey.Raw = UI64LIT(0);
 
@@ -118,12 +119,17 @@ tokens(accountTokenMap), _referer(referer)
     m_achievement.assign(MAX_ACHIEVEMENT, false);
 }
 
+WorldSession::WorldSession(uint32 id, std::string&& name, const std::shared_ptr<WorldSocket>& sock, AccountTypes sec, uint8 expansion, time_t mute_time, std::string os, LocaleConstant locale, uint32 recruiter, bool isARecruiter, AuthFlags flag, int64 balance)
+    : WorldSession(id, std::move(name), sock, sec, expansion, mute_time, std::move(os), locale, recruiter, isARecruiter, flag, std::unordered_map<uint8, int64>(), 0)
+{
+}
+
 /// WorldSession destructor
 WorldSession::~WorldSession()
 {
     ///- unload player if not unloaded
     if (_player)
-        LogoutPlayer(true);
+        LogoutPlayer(true, "WorldSession");
 
     /// - If have unclosed socket, close it
     for (auto & i : m_Socket)
@@ -180,6 +186,9 @@ ObjectGuid::LowType WorldSession::GetGuidLow() const
 /// Send a packet to the client
 void WorldSession::SendPacket(WorldPacket const* packet, bool forced /*= false*/)
 {
+    if (IsBotSession())
+        return;
+
     uint32 opcode = packet->GetOpcode();
     if (opcode == NULL_OPCODE)
     {
@@ -439,7 +448,7 @@ bool WorldSession::Update(uint32 diff, Map* map)
     {
         if (canLogout) // Logout only if remove from map
         {
-            LogoutPlayer(true);
+            LogoutPlayer(true, "WorldSession::Update");
             canLogout = false;
         }
 
@@ -472,7 +481,7 @@ bool WorldSession::Update(uint32 diff, Map* map)
             }
         }
 
-        if (!m_Socket[CONNECTION_TYPE_REALM])
+        if (!m_Socket[CONNECTION_TYPE_REALM] && !IsBotSession())
         {
             m_sUpdate = false;
             return false;                                       //Will remove this session from the world session map
@@ -494,7 +503,7 @@ uint32 WorldSession::GetCountWardenPacketsInQueue()
 }
 
 /// %Log the player out
-void WorldSession::LogoutPlayer(bool Save)
+void WorldSession::LogoutPlayer(bool Save, std::string txt)
 {
     if (m_playerLogout)
         return;
@@ -698,6 +707,8 @@ void WorldSession::LogoutPlayer(bool Save)
         {
             _player->GetGroup()->SendUpdate();
             _player->GetGroup()->ResetMaxEnchantingLevel();
+            if (!IsBotSession())
+                sPlayerBotMgr->LogoutAllGroupPlayerBot(_player->GetGroup(), false);
         }
 
         //! Broadcast a logout message to the player's friends
@@ -732,6 +743,11 @@ void WorldSession::LogoutPlayer(bool Save)
         PreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_ACCOUNT_ONLINE);
         stmt->setUInt32(0, GetAccountId());
         CharacterDatabase.Execute(stmt);
+
+        if (IsBotSession())
+            sPlayerBotMgr->OnPlayerBotLogout(this);
+        //else
+        //    sFieldBotMgr->OnRealPlayerLogout(logoutPlayerGUID);
     }
 
     if (m_Socket[CONNECTION_TYPE_INSTANCE])

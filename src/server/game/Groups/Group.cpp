@@ -46,6 +46,10 @@
 #include "DatabaseEnv.h"
 #include "PlayerDefines.h"
 
+#include "PlayerBotMgr.h"
+#include "BotBGAIMovement.h"
+#include "CellImpl.h"
+
 Roll::Roll(ObjectGuid _guid, LootItem const& li) : itemCount(li.count), totalPlayersRolling(0), totalNeed(0), totalGreed(0), totalPass(0), itemSlot(0), aoeSlot(0), rollVoteMask(ROLL_ALL_TYPE_NO_DISENCHANT)
 {
     item.itemGUID = _guid;
@@ -790,6 +794,9 @@ bool Group::RemoveMember(ObjectGuid const& guid, bool /*disbandInfo*/, RemoveMet
         // }, m_Functions.CalculateTime(10));
     // }
 
+        Player* player = ObjectAccessor::FindPlayer(guid);
+        if (player && player->IsPlayerBot())
+            sPlayerBotMgr->OnPlayerBotLeaveOriginalGroup(player);
     //return false;
 }
 
@@ -1036,6 +1043,8 @@ void Group::Disband(bool hideDestroy /* = false */)
                 player->SetOriginalGroup(nullptr);
             else
                 player->SetGroup(nullptr);
+            if (player->IsPlayerBot())
+                sPlayerBotMgr->OnPlayerBotLeaveOriginalGroup(player);
         }
 
         player->SetPartyType(m_groupCategory, GROUP_TYPE_NONE);
@@ -1591,6 +1600,11 @@ void Group::CountTheRoll(Rolls::iterator rollI)
                     loot->NotifyItemRemoved(roll->itemSlot);
                     loot->unlootedCount--;
                     player->StoreNewItem(dest, roll->item.ItemID, true, item->item.RandomPropertiesID, item->GetAllowedLooters(), item->item.ItemBonus.BonusListIDs, item->item.ItemBonus.Context);
+                    if (player->IsPlayerBot())
+                    {
+                        if (BotGroupAI* pAI = dynamic_cast<BotGroupAI*>(player->GetAI()))
+                            pAI->OnLootedItem(roll->item.ItemID);
+                    }
                 }
                 else
                 {
@@ -1641,6 +1655,11 @@ void Group::CountTheRoll(Rolls::iterator rollI)
                         loot->NotifyItemRemoved(roll->itemSlot);
                         loot->unlootedCount--;
                         player->StoreNewItem(dest, roll->item.ItemID, true, item->item.RandomPropertiesID, item->GetAllowedLooters(), item->item.ItemBonus.BonusListIDs, item->item.ItemBonus.Context);
+                        if (player->IsPlayerBot())
+                        {
+                            if (BotGroupAI* pAI = dynamic_cast<BotGroupAI*>(player->GetAI()))
+                                pAI->OnLootedItem(roll->item.ItemID);
+                        }
                     }
                     else
                     {
@@ -2446,6 +2465,413 @@ void Group::UpdateInstance(InstanceSave* save)
     stmt->setUInt32(7, save->GetResetTime());
 
     CharacterDatabase.Execute(stmt);
+}
+
+void Group::PlayerBotRoll(Player* player, const Roll& roll)
+{
+    if (!player)
+        return;
+    if (PlayerBotSetting::IsBetterEquip(player, sObjectMgr->GetItemTemplate(roll.item.ItemID), roll.item.RandomPropertiesID.Id))
+        CountRollVote(player->GetGUID(), roll.aoeSlot, ROLL_NEED);
+    else
+        CountRollVote(player->GetGUID(), roll.aoeSlot, ROLL_PASS);
+}
+
+bool Group::GiveAtGroupPos(ObjectGuid& guid, uint32& index, uint32& count)
+{
+    index = 0;
+    for (member_citerator citr = m_memberSlots.begin(); citr != m_memberSlots.end(); ++citr)
+    {
+        ++index;
+        if (citr->Guid == guid)
+        {
+            count = m_memberSlots.size();
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Group::GroupExistRealPlayer()
+{
+    for (member_citerator citr = m_memberSlots.begin(); citr != m_memberSlots.end(); ++citr)
+    {
+        Player* player = ObjectAccessor::FindPlayer(citr->Guid);
+        if (!player)
+            continue;
+        if (!player->IsPlayerBot())
+            return true;
+    }
+    return false;
+}
+
+bool Group::GroupExistPlayerBot()
+{
+    for (member_citerator citr = m_memberSlots.begin(); citr != m_memberSlots.end(); ++citr)
+    {
+        Player* player = ObjectAccessor::FindPlayer(citr->Guid);
+        if (!player)
+            continue;
+        if (player->IsPlayerBot())
+            return true;
+    }
+    return false;
+}
+
+bool Group::AllGroupNotCombat()
+{
+    for (member_citerator citr = m_memberSlots.begin(); citr != m_memberSlots.end(); ++citr)
+    {
+        Player* player = ObjectAccessor::FindPlayer(citr->Guid);
+        if (!player)
+            continue;
+        if (!player->isAlive())
+            continue;
+        if (player->isInCombat())
+            return false;
+    }
+    return true;
+}
+
+bool Group::AllGroupIsIDLE()
+{
+    for (member_citerator citr = m_memberSlots.begin(); citr != m_memberSlots.end(); ++citr)
+    {
+        Player* player = ObjectAccessor::FindPlayer(citr->Guid);
+        if (!player)
+            continue;
+        BotGroupAI* pAI = dynamic_cast<BotGroupAI*>(player->GetAI());
+        if (!pAI)
+            continue;
+        if (!pAI->IsIDLEBot())
+            return false;
+    }
+    return true;
+}
+
+void Group::AllGroupBotGiveXP(uint32 XP)
+{
+	for (member_citerator citr = m_memberSlots.begin(); citr != m_memberSlots.end(); ++citr)
+	{
+		Player* player = ObjectAccessor::FindPlayer(citr->Guid);
+		if (!player || !player->IsPlayerBot())
+			continue;
+		BotGroupAI* pAI = dynamic_cast<BotGroupAI*>(player->GetAI());
+		if (!pAI)
+			continue;
+		pAI->DelayGiveXP(XP);
+	}
+}
+
+Unit* Group::GetGroupTankTarget()
+{
+    for (member_citerator citr = m_memberSlots.begin(); citr != m_memberSlots.end(); ++citr)
+    {
+        Player* player = ObjectAccessor::FindPlayer(citr->Guid);
+        if (!player || !player->IsTankPlayer())
+            continue;
+        return player->GetSelectedUnit();
+    }
+    return NULL;
+}
+
+std::vector<ObjectGuid> Group::GetGroupMemberFromNeedRevivePlayer(uint32 forMap)
+{
+    std::vector<ObjectGuid> needRevivePlayers;
+    for (member_citerator citr = m_memberSlots.begin(); citr != m_memberSlots.end(); ++citr)
+    {
+        Player* player = ObjectAccessor::FindPlayer(citr->Guid);
+        if (!player || player->isAlive() || player->IsPlayerBot() || player->GetMapId() != forMap)
+            continue;
+        needRevivePlayers.push_back(citr->Guid);
+    }
+    return needRevivePlayers;
+}
+
+void Group::ResetRaidDungeon()
+{
+    if (isBFGroup() || isBGGroup())
+        return;
+    Player* pLeader = NULL;
+    for (Group::MemberSlot const& slot : m_memberSlots)
+    {
+        Player* groupPlayer = ObjectAccessor::FindPlayer(slot.Guid);
+        if (!groupPlayer)
+            continue;
+        if (!groupPlayer->IsInWorld() || groupPlayer->GetMap()->IsDungeon())
+            return;
+        if (groupPlayer->GetGUID() == m_leaderGuid)
+            pLeader = groupPlayer;
+    }
+    std::list<uint32> mapIDs;
+    for (int i = 0; i < MAX_DIFFICULTY; i++)
+    {
+        if (m_boundInstances[i].empty())
+            continue;
+        for (BoundInstancesMap::iterator itr = m_boundInstances[i].begin(); itr != m_boundInstances[i].end(); ++itr)
+        {
+            InstanceSave* instanceSave = itr->second.save;
+            const MapEntry* mapEntry = sMapStore.LookupEntry(itr->first);
+            if (!mapEntry)
+                continue;
+            mapIDs.push_back(mapEntry->ID);
+        }
+    }
+    for (uint32 mapID : mapIDs)
+    {
+        for (uint8 diff = 0; diff < MAX_DIFFICULTY; ++diff)
+        {
+            if (sDB2Manager.GetMapDifficultyData(mapID, Difficulty(diff)))
+                sInstanceSaveMgr->ForceGlobalReset(mapID, Difficulty(diff));
+        }
+        if (pLeader)
+            pLeader->SendResetInstanceSuccess(mapID);
+    }
+    //ResetInstances(INSTANCE_RESET_ALL, false, pLeader);
+}
+
+void Group::ClearAllGroupForceFleeState()
+{
+    if (isBGGroup())
+        return;
+    for (member_citerator citr = m_memberSlots.begin(); citr != m_memberSlots.end(); ++citr)
+    {
+        Player* player = ObjectAccessor::FindPlayer(citr->Guid);
+        if (!player || !player->IsPlayerBot())
+            continue;
+        UnitAI* pUnitAi = player->GetAI();
+        if (!pUnitAi)
+            continue;
+        if (BotGroupAI* pGroupAI = dynamic_cast<BotGroupAI*>(pUnitAi))
+        {
+            pGroupAI->SetForceFleeState(false);
+            pGroupAI->SetSeduceTarget(ObjectGuid::Empty);
+        }
+    }
+}
+
+void Group::ProcessGroupBotCommand(Player* srcPlayer, std::string& cmd)
+{
+    if (!srcPlayer || !IsLeader(srcPlayer->GetGUID()))
+        return;
+    std::string groupProcess = cmd;
+    std::string groupParam;
+    if (groupProcess.empty())
+        return;
+    if (srcPlayer && !srcPlayer->InBattleground() && groupProcess == "seduce")
+    {
+        Creature* pSeduceTarget = NULL;
+        if (srcPlayer->GetTargetGUID() != ObjectGuid::Empty)
+        {
+            Unit* pTarget = srcPlayer->GetSelectedUnit();
+            if (pTarget && srcPlayer->GetDistance(pTarget->GetPosition()) < BOTAI_FIELDTELEPORT_DISTANCE &&
+                srcPlayer->GetMap() == pTarget->GetMap() && srcPlayer->IsValidAttackTarget(pTarget))
+                pSeduceTarget = pTarget->ToCreature();
+        }
+        if (!pSeduceTarget)
+            pSeduceTarget = SearchSeduceCreature(srcPlayer);
+        if (!pSeduceTarget)
+            return;
+        BotGroupAI* pSeduceGroupAI = SearchExecuteSeduceBotAI();
+        if (!pSeduceGroupAI)
+            return;
+        for (member_citerator citr = m_memberSlots.begin(); citr != m_memberSlots.end(); ++citr)
+        {
+            Player* player = ObjectAccessor::FindPlayer(citr->Guid);
+            if (!player || !player->IsPlayerBot() || srcPlayer->GetMap() != player->GetMap())
+                continue;
+            UnitAI* pUnitAi = player->GetAI();
+            if (!pUnitAi)
+                continue;
+            if (BotGroupAI* pGroupAI = dynamic_cast<BotGroupAI*>(pUnitAi))
+            {
+                if (pGroupAI == pSeduceGroupAI)
+                {
+                    pGroupAI->SetForceFleeState(false);
+                    pGroupAI->SetSeduceTarget(pSeduceTarget->GetGUID());
+                }
+                else
+                {
+                    pGroupAI->SetForceFleeState(true);
+                    pGroupAI->SetSeduceTarget(ObjectGuid::Empty);
+                }
+            }
+        }
+        return;
+    }
+    for (member_citerator citr = m_memberSlots.begin(); citr != m_memberSlots.end(); ++citr)
+    {
+        Player* player = ObjectAccessor::FindPlayer(citr->Guid);
+        if (!player || !player->IsPlayerBot())
+            continue;
+        UnitAI* pUnitAi = player->GetAI();
+        if (BotGroupAI* pGroupAI = dynamic_cast<BotGroupAI*>(pUnitAi))
+            pGroupAI->ProcessBotCommand(srcPlayer, cmd);
+        else// if (player->IsPlayerBot() && srcPlayer->InArena())
+        {
+            if (BotBGAI* pBGAI = dynamic_cast<BotBGAI*>(pUnitAi))
+                pBGAI->ProcessBotCommand(srcPlayer, cmd);
+        }
+    }
+
+    BOTAI_WORKTYPE botaiType = AIWT_ALL;
+    if (groupProcess[0] == '@')
+    {
+        int32 firstEndIndex = groupProcess.find(' ');
+        if (firstEndIndex <= 1)
+            return;
+        std::string target = groupProcess.substr(1, firstEndIndex - 1);
+        std::string realCmd = groupProcess.substr(firstEndIndex + 1);
+        if (realCmd.empty())
+            return;
+        if (target == "tank")
+        {
+            botaiType = AIWT_TANK;
+        }
+        else if (target == "melee")
+        {
+            botaiType = AIWT_MELEE;
+        }
+        else if (target == "ranged")
+        {
+            botaiType = AIWT_RANGE;
+        }
+        else if (target == "heal")
+        {
+            botaiType = AIWT_HEAL;
+        }
+
+        int32 secondEndIndex = realCmd.find(' ');
+        if (secondEndIndex <= 0)
+            groupProcess = realCmd;
+        else
+        {
+            groupProcess = realCmd.substr(0, secondEndIndex);
+            groupParam = realCmd.substr(secondEndIndex + 1);
+        }
+    }
+    else
+    {
+        int32 firstEndIndex = groupProcess.find(' ');
+        if (firstEndIndex < 0)
+            return;
+        std::string realCmd = groupProcess.substr(0, firstEndIndex);
+        groupParam = groupProcess.substr(firstEndIndex + 1);
+        groupProcess = realCmd;
+    }
+    if (groupProcess == "pulls")
+        BotUtility::ProcessGroupTankPullTargets(srcPlayer);
+    else if (groupProcess == "formation")
+    {
+        if (groupParam == "combat")
+            BotUtility::ProcessGroupCombatMovement(srcPlayer, botaiType);
+        else if (groupParam == "ring")
+            BotUtility::ProcessGroupRingMovement(srcPlayer, botaiType);
+        else if (groupParam == "random")
+        {
+            for (member_citerator citr = m_memberSlots.begin(); citr != m_memberSlots.end(); ++citr)
+            {
+                Player* player = ObjectAccessor::FindPlayer(citr->Guid);
+                if (!player || !player->IsPlayerBot())
+                    continue;
+                BotGroupAI* pGroupAI = dynamic_cast<BotGroupAI*>(player->GetAI());
+                if (!pGroupAI)
+                    continue;
+                if (pGroupAI->IsMeleeBotAI())
+                {
+                    if (botaiType == AIWT_ALL || botaiType == AIWT_TANK || botaiType == AIWT_MELEE)
+                        pGroupAI->RndCruxMovement();
+                }
+                else
+                {
+                    if (botaiType == AIWT_ALL || botaiType == AIWT_RANGE || botaiType == AIWT_HEAL)
+                        pGroupAI->RndCruxMovement();
+                }
+            }
+        }
+    }
+}
+
+void Group::OnLeaderChangePhase(Player* changeTarget, uint32 newPhase)
+{
+    if (isBGGroup() || isBFGroup())
+        return;
+    if (!changeTarget || !changeTarget->IsInWorld() || changeTarget->GetGUID() != GetLeaderGUID() || changeTarget->IsPlayerBot())
+        return;
+    for (member_citerator citr = m_memberSlots.begin(); citr != m_memberSlots.end(); ++citr)
+    {
+        if (Player* player = ObjectAccessor::FindPlayer(citr->Guid))
+        {
+            if (player == changeTarget || !player->IsPlayerBot() || player->GetPhaseMask() == newPhase)
+                continue;
+            player->SetPhaseMask(newPhase, false);
+            //player->GetSession()->SendSetPhaseShift(newPhase);
+            player->GetPhaseMgr().Update();
+        }
+    }
+}
+
+Creature* Group::SearchSeduceCreature(Player* centerPlayer)
+{
+    std::map<uint32, Creature*> creatures;
+    std::list<Creature*> nearCreature;
+    Trinity::AllWorldObjectsInRange checker(centerPlayer, BOTAI_FIELDTELEPORT_DISTANCE * 1.2f);
+    Trinity::CreatureListSearcher<Trinity::AllWorldObjectsInRange> searcher(centerPlayer, nearCreature, checker);
+    centerPlayer->VisitNearbyGridObject(BOTAI_FIELDTELEPORT_DISTANCE * 1.2f, searcher);
+    for (Creature* pCreature : nearCreature)
+    {
+        if (!pCreature->isAlive() || !pCreature->IsVisible() || pCreature->isPet() || pCreature->isTotem() || pCreature->getLevel() <= 1)
+            continue;
+        if (pCreature->IsInEvadeMode() || pCreature->isInCombat() || pCreature->GetTargetGUID() != ObjectGuid::Empty)
+            continue;
+        if (!centerPlayer->IsValidAttackTarget(pCreature))
+            continue;
+        uint32 dist = BotBGAIMovement::GetTargetFindpathPointCount(centerPlayer, pCreature);
+        creatures[dist] = pCreature;
+    }
+    uint32 minDist = 99999;
+    Creature* selectCreature = NULL;
+    for (std::map<uint32, Creature*>::iterator itCreature = creatures.begin();
+        itCreature != creatures.end(); itCreature++)
+    {
+        Creature* creature = itCreature->second;
+        uint32 dist = itCreature->first;
+        if (dist < minDist || selectCreature == NULL)
+        {
+            minDist = dist;
+            selectCreature = creature;
+        }
+    }
+    return selectCreature;
+}
+
+BotGroupAI* Group::SearchExecuteSeduceBotAI()
+{
+    uint32 maxPriority = 0;
+    std::vector<BotGroupAI*> seduceAIs;
+    for (member_citerator citr = m_memberSlots.begin(); citr != m_memberSlots.end(); ++citr)
+    {
+        Player* player = ObjectAccessor::FindPlayer(citr->Guid);
+        if (!player)
+            continue;
+        BotGroupAI* pAI = dynamic_cast<BotGroupAI*>(player->GetAI());
+        if (!pAI || !pAI->CanExecuteSeduce())
+            continue;
+        uint32 seducePriority = pAI->GetSeducePriority();
+        if (seducePriority == 0)
+            continue;
+        if (seducePriority > maxPriority)
+        {
+            seduceAIs.clear();
+            maxPriority = seducePriority;
+            seduceAIs.push_back(pAI);
+        }
+        else if (seducePriority == maxPriority)
+            seduceAIs.push_back(pAI);
+    }
+    if (seduceAIs.empty())
+        return NULL;
+    return seduceAIs[urand(0, seduceAIs.size() - 1)];
 }
 
 void Group::_homebindIfInstance(Player* player)

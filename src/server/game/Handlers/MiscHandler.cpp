@@ -506,7 +506,7 @@ void WorldSession::HandleObjectUpdateFailed(WorldPackets::Misc::ObjectUpdateFail
 {
     if (_player->GetGUID() == packet.ObjectGUID)
     {
-        LogoutPlayer(true);
+        LogoutPlayer(true, "HandleObjectUpdateFailed");
         return;
     }
 

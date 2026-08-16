@@ -883,6 +883,7 @@ class BattlegroundIsleOfConquest : public Battleground
         BattlegroundIsleOfConquest();
         ~BattlegroundIsleOfConquest();
 
+        void ResetBGSubclass() override;
         void AddPlayer(Player* player) override;
         void StartingEventCloseDoors() override;
         void StartingEventOpenDoors() override;
@@ -911,6 +912,10 @@ class BattlegroundIsleOfConquest : public Battleground
         uint32 GetTeamScore(TeamId teamId) const override { return m_TeamScores[teamId]; }
         uint32 GetMaxScore() const override { return MAX_REINFORCEMENTS; }
         bool IsScoreIncremental() const override { return false; }
+
+        GameObject const* GetClosestEnemyFlagByRange(Player* player, float range);
+        uint32 GetNodeObjectType(uint32 type);
+
     private:
         uint32 closeFortressDoorsTimer;
         bool doorsClosed;
@@ -974,4 +979,6 @@ class BattlegroundIsleOfConquest : public Battleground
         void HandleCapturedNodes(ICNodePoint* nodePoint, bool recapture);
         void HandleContestedNodes(ICNodePoint* nodePoint);
 };
+
+using BattlegroundIC = BattlegroundIsleOfConquest;
 #endif

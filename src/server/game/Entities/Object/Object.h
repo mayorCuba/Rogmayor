@@ -330,8 +330,6 @@ class Object
         Unit* ToUnit() { if (IsUnit()) return reinterpret_cast<Unit*>(this); return nullptr; }
         Unit const* ToUnit() const { if (IsUnit()) return reinterpret_cast<Unit const*>(this); return nullptr; }
 
-        bool IsUnitOwnedByPlayer() const;
-
         bool IsGameObject() const { return GetTypeId() == TYPEID_GAMEOBJECT; }
         GameObject* ToGameObject() { if (IsGameObject()) return reinterpret_cast<GameObject*>(this); return nullptr; }
         GameObject const* ToGameObject() const { if (IsGameObject()) return reinterpret_cast<GameObject const*>(this); return nullptr; }
@@ -467,6 +465,7 @@ class WorldObject : public Object, public WorldLocation
         void MovePositionToFirstCollision(Position &pos, float dist, float angle);
         void MovePositionToTransportCollision(Position &pos, float dist, float angle);
         void GetFirstCollisionPosition(Position& pos, float dist, float angle);
+        Position GetFirstCollisionPosition(float dist, float angle);
         void MovePositionToCollisionBetween(Position &pos, float distMin, float distMax, float angle);
         void GetCollisionPositionBetween(Position& pos, float distMin, float distMax, float angle);
         void GetRandomNearPosition(Position& pos, float radius);
@@ -483,7 +482,7 @@ class WorldObject : public Object, public WorldLocation
         void GetRandomPoint(Position const& srcPos, float distance, Position& pos) const;
 
         uint32 GetInstanceId() const { return m_InstanceId; }
-        bool InInstance() const { return m_currMap && m_currMap->Instanceable(); }
+        bool InInstance() const;
 
         virtual void SetPhaseMask(uint32 newPhaseMask, bool update);
         uint32 GetPhaseMask() const { return m_phaseMask; }
@@ -495,7 +494,7 @@ class WorldObject : public Object, public WorldLocation
         bool HasPhaseId(uint32 PhaseID) const;
         std::set<uint32> const& GetPhases() const;
         bool InSamePhaseId(WorldObject const* obj) const;
-        bool InSamePhaseId(std::set<uint32> const& phase, bool otherUsePlayerPhasingRules) const;
+        bool InSamePhaseId(std::set<uint32> const& phase, bool otherIsPlayer) const;
         void RebuildTerrainSwaps();
         void RebuildWorldMapAreaSwaps();
         std::set<uint32> const& GetTerrainSwaps() const { return _terrainSwaps; }
@@ -552,7 +551,7 @@ class WorldObject : public Object, public WorldLocation
 
         float GetWaterOrGroundLevel(float x, float y, float z, float* ground = nullptr, bool swim = false) const;
         float GetWaterOrGroundLevel(Position pos) const { return GetWaterOrGroundLevel(pos.GetPositionX(), pos.GetPositionY(), pos.GetPositionZ()); }
-        float GetHeight(float x, float y, float z, bool vmap = true, float maxSearchDist = DEFAULT_HEIGHT_SEARCH) const;
+        float GetHeight(float x, float y, float z, bool vmap = true, float maxSearchDist = 250.f) const;
 
         bool IsInBetweenShift(const Position* obj1, const Position* obj2, float size, float shift, float angleShift) const;
         bool IsInBetween(const Position* obj1, const Position* obj2, float size = 0) const;

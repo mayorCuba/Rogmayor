@@ -1046,7 +1046,20 @@ class WorldSession
 {
     public:
         WorldSession(uint32 id, std::string&& name, const std::shared_ptr<WorldSocket>& sock, AccountTypes sec, uint8 expansion, time_t mute_time, std::string os, LocaleConstant locale, uint32 recruiter, bool isARecruiter, AuthFlags flag, std::unordered_map<uint8, int64>&& accountTokenMap, uint32 referer);
+        WorldSession(uint32 id, std::string&& name, const std::shared_ptr<WorldSocket>& sock, AccountTypes sec, uint8 expansion, time_t mute_time, std::string os, LocaleConstant locale, uint32 recruiter, bool isARecruiter, AuthFlags flag, int64 balance);
         ~WorldSession();
+
+        void HandleFakerPackets();
+        void HandleBotMoveTeleportAck();
+        void HandleBotPlayerLogin(LoginQueryHolder* holder);
+        void SetAddress(std::string mybot)
+        {
+            m_Address = mybot;
+        }
+        void Setexpansion(uint8 mybot)
+        {
+            m_expansion = mybot;
+        }
 
         bool PlayerLoading() const { return !m_playerLoading.IsEmpty(); }
         bool PlayerLogout() const { return m_playerLogout; }
@@ -1121,13 +1134,13 @@ class WorldSession
             return (_logoutTime > 0 && currTime >= _logoutTime + 20);
         }
 
-        void LogoutPlayer(bool Save);
+        void LogoutPlayer(bool Save, std::string txt);
         void KickPlayer();
         bool CanLogout() { return canLogout; }
         void SetCanLogout() { canLogout = true; }
 
         void QueuePacket(WorldPacket* new_packet);
-        bool Update(uint32 diff, Map* map = nullptr);
+        virtual bool Update(uint32 diff, Map* map = nullptr);
 
         /// Handle the authentication waiting queue (to be completed)
         void SendAuthWaitQue(uint32 position);
@@ -1651,7 +1664,7 @@ class WorldSession
 
         void HandlePetAction(WorldPackets::PetPackets::PetAction& packet);
         void HandleStopAttack(WorldPackets::PetPackets::StopAttack& packet);
-        void HandlePetActionHelper(Unit* pet, ObjectGuid petGuid, uint32 spellid, uint16 flag, ObjectGuid targetGuid, Position const& pos);
+        void HandlePetActionHelper(Unit* pet, ObjectGuid petGuid, uint32 spellid, uint16 flag, ObjectGuid targetGuid, Position* pos = nullptr);
         void HandleQueryPetName(WorldPackets::Query::QueryPetName& packet);
         void HandlePetSetAction(WorldPackets::PetPackets::PetSetAction& packet);
         void HandlePetAbandon(WorldPackets::PetPackets::PetAbandon& packet);
@@ -2042,6 +2055,12 @@ class WorldSession
         void LoadAchievement(PreparedQueryResult const& result);
 
         uint32 m_classMask = 0;
+
+        bool HasSocket() { return m_Socket != NULL; }
+        virtual bool IsBotSession() { return false; }
+        virtual bool HasSchedules() { return false; }
+        virtual bool HasBGSchedule() { return false; }
+        virtual bool IsAccountBotSession() { return false; }
 
     private:
         void ProcessQueryCallbacks();

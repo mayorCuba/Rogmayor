@@ -24,6 +24,8 @@
 #include "PlayerDefines.h"
 #include "InstancePackets.h"
 #include "Vehicle.h"
+#include "MapManager.h"
+#include "BotAITool.h"
 
 void WorldSession::HandleWorldPortResponse(WorldPackets::Movement::WorldPortResponse& /*packet*/)
 {
@@ -55,7 +57,7 @@ void WorldSession::HandleWorldPortAck()
     if (!MapManager::IsValidMapCoord(loc))
     {
         player->SetChangeMap(false);
-        LogoutPlayer(false);
+        LogoutPlayer(false, "HandleWorldPortAck");
         return;
     }
 
@@ -190,6 +192,57 @@ void WorldSession::HandleWorldPortAck()
     player->SetChangeMap(false);
 }
 
+void WorldSession::HandleBotMoveTeleportAck()
+{
+    Player* plMover = _player->m_mover->ToPlayer();
+
+    if (plMover && plMover->IsBeingTeleportedSeamlessly())
+        return;
+
+    if (!plMover || !plMover->IsBeingTeleportedNear())
+        return;
+
+    if (_player->GetGUID() != plMover->GetGUID())
+        return;
+
+    plMover->SetSemaphoreTeleportNear(false);
+
+    uint32 old_zone = plMover->GetCurrentZoneID();
+    plMover->UpdatePosition(plMover->GetTeleportDest(), true);
+
+    uint32 newzone, newarea;
+    plMover->GetZoneAndAreaId(newzone, newarea);
+    plMover->UpdateZone(newzone, newarea);
+
+    if (old_zone != newzone)
+    {
+        if (plMover->pvpInfo.inHostileArea)
+            plMover->CastSpell(plMover, 2479, true);
+
+        else if (plMover->IsPvP() && !plMover->HasFlag(PLAYER_FIELD_PLAYER_FLAGS, PLAYER_FLAGS_IN_PVP))
+            plMover->UpdatePvP(false, false);
+    }
+
+    GetPlayer()->ResummonPetTemporaryUnSummonedIfAny();
+    GetPlayer()->SummonLastSummonedBattlePet();
+    GetPlayer()->ProcessDelayedOperations();
+    GetPlayer()->ReCreateAreaTriggerObjects();
+
+    if (Unit* mover = _player->m_mover)
+    {
+        mover->m_movementInfo.MoveTime = getMSTime();
+        mover->m_movementInfo.ClientMoveTime = 0;
+        mover->m_movementInfo.Pos = mover->GetPosition();
+
+        //WorldPackets::Movement::MoveUpdateTeleport packet;
+        //packet.movementInfo = &mover->m_movementInfo;
+        //packet.movementInfo->RemoteTimeValid = true;
+        //mover->SendMessageToSet(packet.Write(), mover);
+
+        mover->ClearUnitState(UNIT_STATE_JUMPING);
+    }
+}
+
 void WorldSession::HandleMoveTeleportAck(WorldPackets::Movement::MoveTeleportAck& packet)
 {
     Player* plMover = _player->m_mover->ToPlayer();
@@ -239,6 +292,7 @@ void WorldSession::HandleMoveTeleportAck(WorldPackets::Movement::MoveTeleportAck
 
         mover->ClearUnitState(UNIT_STATE_JUMPING);
     }
+    BotUtility::TryTeleportPlayerPet(GetPlayer(), true);
 }
 
 void WorldSession::HandleMovementOpcodes(WorldPackets::Movement::ClientPlayerMovement& packet)

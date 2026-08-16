@@ -179,6 +179,9 @@ public:
     uint32 GetMaxScore() const override { return 3; }
     bool IsScoreIncremental() const override { return true; }
     void DoAction(uint32, ObjectGuid) override;
+
+    void HandleAreaTrigger(Player* player, uint32 trigger);
+
 private:
     void UpdateFlagState(TeamId teamID, uint32 value, ObjectGuid flagKeeperGUID, uint8 j);
     void RespawnFlag(TeamId teamID, bool captured, uint8 j);
@@ -228,4 +231,5 @@ private:
     std::vector<std::pair<ObjectGuid, uint32>> m_brawlAreatriggers{}; // [i] = guid - time
 };
 
+using BattlegroundWS = BattlegroundWarsongGulch;
 #endif

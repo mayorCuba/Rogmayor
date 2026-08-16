@@ -1,8 +1,10 @@
-
+﻿
 #ifndef __BATTLEGROUNDDS_H
 #define __BATTLEGROUNDDS_H
 
 #include "Arena.h"
+
+struct AIWaypoint;
 
 class ArenaDalaranSewers : public Arena
 {
@@ -24,6 +26,10 @@ public:
 
     void _CheckPositions(uint32 diff) override;
     bool SetupBattleground() override;
+
+    AIWaypoint* m_LMStartPoint{ 0 };
+    AIWaypoint* m_BLStartPoint{ 0 };
+
 protected:
     uint32 getWaterFallStatus() { return _waterfallStatus; };
     void setWaterFallStatus(uint8 status) { _waterfallStatus = status; };

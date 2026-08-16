@@ -686,7 +686,7 @@ typedef std::unordered_map<uint32, std::set<SpellTargetRestrictionsEntry const*>
 typedef std::unordered_map<uint32, uint32> RevertLearnSpellContainer;
 typedef std::unordered_map<uint32, uint32> ReversTriggerSpellContainer;
 typedef std::unordered_map<uint16, SpellEffectEntry const*> SpellEffectsMap;
-struct SpellEffectDiff { SpellEffectsMap effects; };
+struct SpellEffectDiff { mutable SpellEffectsMap effects; };
 typedef std::vector<SpellEffectDiff> SpellEffectDiffContainer;
 typedef std::vector<SpellEffect> SpellEffectContainer;
 typedef ChrSpecializationEntry const* ChrSpecializationByIndexContainer[MAX_CLASSES + 1][MAX_SPECIALIZATIONS];
@@ -3243,6 +3243,21 @@ SpellEffectEntry const* DB2Manager::GetSpellEffectEntry(uint32 spellId, uint32 e
     }
     else
         return _spellEffectMap[spellId].effects[effect];
+
+    return nullptr;
+}
+
+SpellEffectEntry* DB2Manager::GetSpellEffectEntry0(uint32 spellId, uint32 effect, uint8 difficulty)
+{
+    if (difficulty)
+    {
+        SpellEffectsMap* effects = &_spellEffectDiff[spellId].effects;
+        auto itrsecond = effects->find(MAKE_PAIR16(effect, difficulty));
+        if (itrsecond != effects->end())
+            return (SpellEffectEntry*)itrsecond->second;
+    }
+    else
+        return (SpellEffectEntry*)_spellEffectMap[spellId].effects[effect];
 
     return nullptr;
 }

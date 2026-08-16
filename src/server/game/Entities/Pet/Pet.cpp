@@ -356,6 +356,14 @@ bool Pet::LoadPetFromDB(Player* owner, uint32 petentry, uint32 petnumber)
                 m_declinedname->name[i] = fields2[i].GetString();
             }
         }
+
+        if (owner->IsPlayerBot())
+        {
+            if (m_spells.empty())
+                InitPetCreateSpells();
+            SettingAllSpellAutocast(true);
+        }
+
         CheckSpecialization();
     }
 
@@ -2071,6 +2079,22 @@ void Pet::SynchronizeLevelWithOwner()
         return;
 
     GivePetLevel(owner->GetEffectiveLevel());
+}
+
+void Pet::SettingAllSpellAutocast(bool autocast, uint32 excludeSpell /* = 0 */)
+{
+    for (PetSpellMap::iterator itrSpell = m_spells.begin(); itrSpell != m_spells.end(); ++itrSpell)
+    {
+        uint32 petSpellID = itrSpell->first;
+        if (petSpellID == excludeSpell)
+            continue;
+        SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(petSpellID);
+        if (!spellInfo || spellInfo->IsPassive() || !spellInfo->IsAutocastable())
+            continue;
+        ToggleAutocast(spellInfo, (petSpellID == 1742) ? false : autocast);
+        if (CharmInfo* charmInfo = GetCharmInfo())
+            charmInfo->SetSpellAutocast(spellInfo, (petSpellID == 1742) ? false : autocast);
+    }
 }
 
 void Pet::LearnSpecializationSpell()

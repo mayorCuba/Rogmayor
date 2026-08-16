@@ -47,6 +47,9 @@
 #include "EquipementSet.h"
 #include "LogsSystem.h"
 
+class PlayerAI;
+class PlayerBotSetting;
+
 class SpectatorAddonMsg;
 struct Mail;
 struct ItemExtendedCostEntry;
@@ -1460,6 +1463,27 @@ class Player : public Unit, public GridObject<Player>
         explicit Player (WorldSession* session);
         ~Player();
 
+        bool m_bot;
+        int32 FakerMoveTimer;
+        uint32 m_plguid;
+
+        PlayerAI* AI() const { return reinterpret_cast<PlayerAI*>(i_AI); }
+        int32 m_EquipCombatPower;
+        PlayerBotSetting* m_PlayerBotSetting;
+        bool IsTankPlayer();
+        uint32 FindTalentType();
+        bool AIEquipItem(uint32 entry);
+        bool CheckNeedTenacityFlush();
+        bool ResetPlayerToLevel(uint32 level, uint32 talent = 3, bool needTenacity = false);
+        bool IsSettingFinish();
+        void SupplementAmmo();
+        void OnLevelupToBotAI();
+        uint32 ReupdateTalents();
+        uint32 SwitchTalent(uint32 talent);
+        int32 GetEquipCombatPower() { return m_EquipCombatPower; }
+        void FlushEquipCombatPower(uint8 eSlot, bool apply, const ItemTemplate* pEquipTemplate);
+        bool EquipIsTidiness();
+
         void Clear() override;
         void PrintPlayerSize();
 
@@ -1683,6 +1707,7 @@ class Player : public Unit, public GridObject<Player>
         bool ChangeTokenCount(uint8 tokenType, int64 change, uint8 buyType, uint64 productId);
         void ModifyCanUseDonate(bool apply){ canUseDonate = apply; }
         bool GetCanUseDonate() const { return canUseDonate; }
+        void SwitchToOppositeTeam(bool apply);
         std::string GetInfoForDonate() const;
         
         bool HasItemCount(uint32 item, uint32 count = 1, bool inBankAlso = false) const;
@@ -1706,7 +1731,7 @@ class Player : public Unit, public GridObject<Player>
             return CanStoreItem(bag, slot, dest, pItem->GetEntry(), count, pItem, swap, nullptr);
 
         }
-        InventoryResult CanStoreItems(Item** pItem, int count, uint32& ItemID) const;
+        InventoryResult CanStoreItems(Item** pItem, int count, uint32& ItemID, Player* target);
         InventoryResult CanEquipNewItem(uint8 slot, uint16& dest, uint32 item, bool swap, bool not_loading = true) const;
         InventoryResult CanEquipItem(uint8 slot, uint16& dest, Item* pItem, bool swap, bool not_loading = true) const;
 
@@ -1931,10 +1956,10 @@ class Player : public Unit, public GridObject<Player>
         bool CanSeeStartQuest(Quest const* quest);
         bool CanTakeQuest(Quest const* quest, bool msg);
         bool CanAddQuest(Quest const* quest, bool msg);
-        void AutoCompleteObjectives(Quest const* quest, bool onlyBugged);
-        bool HasQuestObjectiveComplete(Quest const* qInfo, QuestObjective const& obj);
         bool CanCompleteQuest(uint32 quest_id);
         bool CanCompleteRepeatableQuest(Quest const* quest);
+        void AutoCompleteObjectives(Quest const* quest, bool onlyBugged);
+        bool HasQuestObjectiveComplete(Quest const* qInfo, QuestObjective const& obj);
         bool CanRewardQuest(Quest const* quest, bool msg);
         bool CanRewardQuest(Quest const* quest, uint32 reward, bool msg, uint32 packItemId);
         void AddQuest(Quest const* quest, Object* questGiver);
@@ -2168,6 +2193,7 @@ class Player : public Unit, public GridObject<Player>
         void SendProficiency(ItemClass itemClass, uint32 itemSubclassMask);
         bool addSpell(uint32 spellId, bool active, bool learning, bool dependent, bool disabled, bool loading = false, uint32 fromSkill = 0, bool battlePet = false);
         void learnSpell(uint32 spell_id, bool dependent, uint32 fromSkill = 0, bool sendMessage = true);
+        funlias(learnSpell, LearnSpell)
         void removeSpell(uint32 spell_id, bool disabled = false, bool learn_low_rank = true, bool sendMessage = true);
         void resetSpells();
         SpellInfo const* GetCastSpellInfo(SpellInfo const* spellInfo, uint32 newSpellId) const;
@@ -2543,7 +2569,7 @@ class Player : public Unit, public GridObject<Player>
 
         Corpse* GetCorpse() const;
         void SpawnCorpseBones();
-        void CreateCorpse();
+        Corpse* CreateCorpse();
         void KillPlayer();
         void InitializeSelfResurrectionSpells();
         void ResurrectPlayer(float restore_percent, bool applySickness = false);
@@ -2604,10 +2630,6 @@ class Player : public Unit, public GridObject<Player>
         static uint32 TeamForRace(uint8 race);
         static TeamId TeamIdForRace(uint8 race);
         uint32 GetTeam() const { return m_team; }
-        void SwitchToOppositeTeam(bool apply);
-        uint32 GetBgQueueTeam() const;
-        bool IsInAlliance() const { return m_team == ALLIANCE; }
-        bool IsInHorde() const { return m_team == HORDE; }
         TeamId GetTeamId() const { if (m_team == ALLIANCE) return TEAM_ALLIANCE; if (m_team == HORDE) return TEAM_HORDE; return TEAM_NEUTRAL; }
         void setFactionForRace(uint8 race);
 
@@ -2721,7 +2743,7 @@ class Player : public Unit, public GridObject<Player>
         void ApplyArtifactPowers(Item* item, bool apply);
         void ApplyArtifactPowerRank(Item* artifact, ArtifactPowerRankEntry const* artifactPowerRank, bool apply);
         void CastItemCombatSpell(Unit* target, WeaponAttackType attType, uint32 procVictim, uint32 procEx);
-        void CastItemUseSpell(Item* item, SpellCastTargets const& targets, int32* misc, ObjectGuid SpellGuid);
+        bool CastItemUseSpell(Item* item, SpellCastTargets const& targets, int32* misc, ObjectGuid SpellGuid);
         void CastItemCombatSpell(Unit* target, WeaponAttackType attType, uint32 procVictim, uint32 procEx, Item* item, ItemTemplate const* proto);
 
         void SendEquipmentSetList();
@@ -2786,6 +2808,8 @@ class Player : public Unit, public GridObject<Player>
         void SetBGTeam(uint32 team);
         uint32 GetBGTeam() const;
         TeamId GetBGTeamId() const;
+        uint32 GetBgQueueTeam() const;
+        bool IsInAlliance() const { return m_team == ALLIANCE; }
         uint16 GetLastActiveSpec(bool lfgOrBg = false) const;
         void SaveLastSpecialization(bool lfgOrBg = false);
 
@@ -3677,9 +3701,9 @@ class Player : public Unit, public GridObject<Player>
         void AdjustQuestReqItemCount(Quest const* quest);
 
         bool IsCanDelayTeleport() const { return m_bCanDelayTeleport; }
-        void SetCanDelayTeleport(bool setting) { m_bCanDelayTeleport = setting; }
+        void SetCanDelayTeleport(bool setting);
         bool IsHasDelayedTeleport() const { return m_bHasDelayedTeleport; }
-        void SetDelayedTeleportFlag(bool setting) { m_bHasDelayedTeleport = setting; }
+        void SetDelayedTeleportFlag(bool setting);
         bool IsHasGlobalTeleport() const { return m_bHasglobalTeleport; }
         void SetGlobalTeleport(bool setting) { m_bHasglobalTeleport = setting; }
 

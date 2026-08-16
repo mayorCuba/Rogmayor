@@ -30,6 +30,7 @@
 #include "RandomMovementGenerator.h"
 #include "MoveSpline.h"
 #include "MoveSplineInit.h"
+#include "Pathfinding.h"
 #include <cassert>
 
 inline bool isStatic(MovementGenerator *mv)
@@ -627,6 +628,21 @@ bool MotionMaster::SpellMoveCharge(float x, float y, float z, float speed, uint3
     Mutate(new ChargeMovementGenerator(id, x, y, z, speed, triggerspellId), MOTION_SLOT_CONTROLLED);
 
     return true;
+}
+
+void MotionMaster::MovePathfinding(PathParameter* pathParam)
+{
+    if (!pathParam)
+        return;
+    UnitMoveType curMoveType = UnitMoveType::MOVE_RUN;
+    G3D::Vector3 dest = pathParam->destPosition;
+    Mutate(new PointMovementGenerator<Player>(0, dest.x, dest.y, dest.z, false, _owner->GetSpeed(curMoveType)), MOTION_SLOT_CONTROLLED);// MOTION_SLOT_ACTIVE);
+
+    Movement::MoveSplineInit init(*_owner);
+    init.MovebyPath(pathParam->finishPaths);
+    init.SetSmooth();
+    init.SetWalk(false);
+    init.Launch();
 }
 
 void MotionMaster::MoveSeekAssistance(float x, float y, float z)

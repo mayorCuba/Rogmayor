@@ -700,6 +700,9 @@ ReputationMgr::ReputationMgr(Player* owner) : _player(owner), _visibleFactionCou
 
 void ReputationMgr::SaveToDB(SQLTransaction& trans)
 {
+    if (_player->IsPlayerBot())
+        return;
+
     if (_factions.empty())
         return;
 

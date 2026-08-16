@@ -1959,6 +1959,12 @@ void Guild::HandleInviteMember(WorldSession* session, std::string const& name)
         return;
     }
 
+    if (pInvitee->IsPlayerBot())
+    {
+        SendCommandResult(session, GUILD_INVITE_S, ERR_ALREADY_IN_GUILD_S, name);
+        return;
+    }
+
     // Invited player cannot be invited
     if (pInvitee->GetGuildIdInvited())
     {

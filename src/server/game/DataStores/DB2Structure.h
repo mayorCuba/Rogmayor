@@ -5866,6 +5866,7 @@ struct SpellEntry
     LocalizedString* AuraDescription;
 
     SpellEffectEntry const* GetSpellEffect(uint32 eff, uint8 diff = 0) const;
+    SpellEffectEntry* GetSpellEffect0(uint32 eff, uint8 diff = 0);
 };
 
 // FileOptions: Index, None

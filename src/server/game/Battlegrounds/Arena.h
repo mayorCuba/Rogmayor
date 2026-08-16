@@ -41,10 +41,50 @@ protected:
     void StartingEventOpenDoors() override;
     void SendOpponentSpecialization(uint32 team);
 
-private:
+    using PLAYERS = std::list<Player*>;
+    void CommandCombat(TeamId commandTeam, PLAYERS& alliances, PLAYERS& hordes);
+    bool NeedHarassHealer(PLAYERS& selfPlayer, PLAYERS& enemyPlayer);
+    bool HasFullSuppressSpell(PLAYERS& selfPlayer);
+    bool CanFullSuppressPlayer(PLAYERS& enemyPlayers);
+    bool SuppressRealPlayer(PLAYERS& selfPlayer, PLAYERS& enemyPlayer);
+    bool SuppressHealerPlayer(PLAYERS& selfPlayer, PLAYERS& enemyPlayer);
+    bool SuppressMightinessPlayer(PLAYERS& selfPlayer, PLAYERS& enemyPlayer);
+    void FollowEnemyHealer(PLAYERS& selfPlayer, PLAYERS& enemyPlayer);
+    PLAYERS::iterator GetListHealer(PLAYERS& players);
+    PLAYERS::iterator GetListMeleer(PLAYERS& players);
+    PLAYERS::iterator GetListRanger(PLAYERS& players);
+    bool HasAuraMechanic(Unit* pTarget, Mechanics mask);
+    bool CanSelectTarget(Player* pTarget);
+    bool MeleeTargetIsSuppress(Player* pTarget);
+    bool TargetIsOverSuppress(Player* pTarget);
+    bool IsHealerBot(Player* pTarget);
+    bool IsMeleeBot(Player* pTarget);
+    bool IsAllMeleeBot(Player* pTarget);
+    bool IsRangeBot(Player* pTarget);
+    bool IsMightiness(Player* pTarget);
+    bool CanFullHealerEnemy(PLAYERS& players);
+    bool CanFullHealerEnemy2(PLAYERS& players);
+    bool ExistCtrlSpellCasting(PLAYERS& players);
+    bool ExistRealPlayerByRange(PLAYERS& players);
+    bool ExistControler(PLAYERS& players);
+    bool ExistMightinessClasses(PLAYERS& players);
+    bool ExistMightinessHealer(PLAYERS& players);
+    Player* FindPriorAttackTarget(PLAYERS& players);
+    void NormalTactics(PLAYERS& comLists, PLAYERS& canSelectEnemys);
+
     void RemovePlayerAtLeave(ObjectGuid guid, bool transport, bool sendPacket) override;
-    void EndBattleground(uint32 winner) override;
     void CheckWinConditions() override;
+    void EndBattleground(uint32 winner) override;
+    void InsureArenaAllPlayerFlag();
+    void InsureArenaFlag(Player* player, bool init = false);
+    bool AssignTactics(PLAYERS& comLists, PLAYERS& enemyLists);
+
+    bool m_StartTryMount{false};
+    uint32 m_UpdateTick{0};
+    TeamId m_LastCommandTeam{ TEAM_NEUTRAL };
+    void Update(uint32 diff) override;
+
+private:
     void ApplyDampeningIfNeeded();
     IntervalTimer _dampeningTimer;
     IntervalTimer _winConditionCheckTimer;

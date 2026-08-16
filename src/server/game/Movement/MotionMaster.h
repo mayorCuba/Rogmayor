@@ -28,6 +28,7 @@ class MovementGenerator;
 class Unit;
 class Spell;
 class DelayCastEvent;
+struct PathParameter;
 
 namespace Movement
 {
@@ -185,6 +186,7 @@ class MotionMaster //: private std::stack<MovementGenerator *>
         void MoveSmoothFlyPath(uint32 pointId, G3D::Vector3 const* path, size_t size);
         void MoveSmoothFlyPath(uint32 pointId, Position const position, float flightSpeed = 0.0f);
 
+        void MovePathfinding(PathParameter* pathParam);
         void MoveSeekAssistance(float x, float y, float z);
         void MoveSeekAssistanceDistract(uint32 timer);
         void MoveTaxiFlight(uint32 path, uint32 pathnode);

@@ -25,6 +25,7 @@
 #include "Player.h"
 #include "Util.h"
 #include "WorldStatePackets.h"
+#include "ObjectAccessor.h"
 
 BattlegroundEyeOfTheStorm::BattlegroundEyeOfTheStorm(): _checkFlagPickuperPos(0), _flagsTimer(0), _towerCapCheckTimer(0), _pointAddingTimer(0), _honorTics(0), _flagState(0), _isInformedNearVictory(false)
 {
@@ -40,6 +41,58 @@ BattlegroundEyeOfTheStorm::BattlegroundEyeOfTheStorm(): _checkFlagPickuperPos(0)
 }
 
 BattlegroundEyeOfTheStorm::~BattlegroundEyeOfTheStorm() = default;
+
+void BattlegroundEY::HandleAreaTrigger(Player* player, uint32 trigger)
+{
+    if (GetStatus() != STATUS_IN_PROGRESS)
+        return;
+
+    if (!player->IsAlive())                                  //hack code, must be removed later
+        return;
+
+    switch (trigger)
+    {
+        case TR_BLOOD_ELF_POINT:
+            if (_pointState[BLOOD_ELF] == EY_POINT_UNDER_CONTROL && _pointOwnedByTeam[BLOOD_ELF] == player->GetTeam())
+                if (_flagState && GetFlagPickerGUID() == player->GetGUID())
+                    EventPlayerCapturedFlag(player);
+            break;
+        case TR_FEL_REAVER_POINT:
+            if (_pointState[FEL_REAVER] == EY_POINT_UNDER_CONTROL && _pointOwnedByTeam[FEL_REAVER] == player->GetTeam())
+                if (_flagState && GetFlagPickerGUID() == player->GetGUID())
+                    EventPlayerCapturedFlag(player);
+            break;
+        case TR_MAGE_TOWER_POINT:
+            if (_pointState[MAGE_TOWER] == EY_POINT_UNDER_CONTROL && _pointOwnedByTeam[MAGE_TOWER] == player->GetTeam())
+                if (_flagState && GetFlagPickerGUID() == player->GetGUID())
+                    EventPlayerCapturedFlag(player);
+            break;
+        case TR_DRAENEI_RUINS_POINT:
+            if (_pointState[DRAENEI_RUINS] == EY_POINT_UNDER_CONTROL && _pointOwnedByTeam[DRAENEI_RUINS] == player->GetTeam())
+                if (_flagState && GetFlagPickerGUID() == player->GetGUID())
+                    EventPlayerCapturedFlag(player);
+            break;
+        case 4512:
+        case 4515:
+        case 4517:
+        case 4519:
+        case 4530:
+        case 4531:
+        case 4568:
+        case 4569:
+        case 4570:
+        case 4571:
+        case 5866:
+            break;
+    }
+}
+
+bool BattlegroundEY::EYPointIsControl(uint32 team, uint32 pointIndex)
+{
+    if (pointIndex >= EY_POINTS_MAX)
+        return false;
+    return (_pointOwnedByTeam[pointIndex] == team && _pointState[pointIndex] == EY_POINT_UNDER_CONTROL);
+}
 
 void BattlegroundEyeOfTheStorm::PostUpdateImpl(uint32 diff)
 {
@@ -169,6 +222,28 @@ void BattlegroundEyeOfTheStorm::StartingEventOpenDoors()
     // Achievement: Flurry
     StartTimedAchievement(CRITERIA_TIMED_TYPE_EVENT, EY_EVENT_START_BATTLE);
     StartTimedAchievement(CRITERIA_TIMED_TYPE_EVENT2, EY_EVENT_START_BATTLE);
+
+    for (auto itr = GetPlayers().begin(); itr != GetPlayers().end(); ++itr)
+    {
+        if (Player* player = ObjectAccessor::FindPlayer(itr->first))
+        {
+            //TC_LOG_ERROR("bg.battleground", "BATTLEGROUND: start tele %s ok (map: %u) ", player->GetName().c_str(), GetMapId());
+            if (player && player->IsInWorld() && player->IsPlayerBot())
+                if (player->GetTeamId() == TEAM_ALLIANCE)
+                {
+
+                    player->TeleportTo(566, 2456.89f, 1602.02f, 1206.45f, 0);
+                    player->Relocate(2456.89f, 1602.02f, 1206.45f, 0);
+                }
+                else
+                {
+                    player->TeleportTo(566, 1875.77f, 1530.65f, 1206.87f, 0);
+                    player->Relocate(1875.77f, 1530.65f, 1206.87f, 0);
+                }
+
+        }
+    }
+
 }
 
 void BattlegroundEyeOfTheStorm::AddPoints(TeamId teamID, uint32 points)

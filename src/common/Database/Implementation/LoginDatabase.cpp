@@ -113,4 +113,9 @@ void LoginDatabaseConnection::DoPrepareStatements()
     PrepareStatement(LOGIN_SEL_ACCOUNT_CHARACTER_TEMPLATE, "SELECT `id`, `level`, `iLevel`, `money`, `artifact`, `transferId`, `templateId` FROM account_character_template WHERE account = ? AND realm = ? AND charGuid = 0", CONNECTION_ASYNC);
     PrepareStatement(LOGIN_UPD_ACCOUNT_CHARACTER_TEMPLATE, "UPDATE `account_character_template` SET charGuid = ? WHERE id = ?;", CONNECTION_ASYNC);
     PrepareStatement(LOGIN_UPD_TRANSFER_REQUESTS, "UPDATE `transfer_requests` SET guid = ?, `status` = '0', `char_class` = ?, `char_faction` = ? WHERE id = ?", CONNECTION_ASYNC);
+
+    PrepareStatement(LOGIN_SEL_TOOL_IPBIND, "SELECT * FROM toolip WHERE ip = ?", CONNECTION_SYNCH);
+
+    PrepareStatement(LOGIN_SEL_ALLRANDOM_NAME, "SELECT * FROM playerbot_names", CONNECTION_SYNCH);
+    PrepareStatement(LOGIN_SEL_ALLARENA_NAME, "SELECT * FROM playerbot_arena", CONNECTION_SYNCH);
 }

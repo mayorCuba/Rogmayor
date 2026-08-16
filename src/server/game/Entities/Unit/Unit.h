@@ -801,6 +801,7 @@ public:
 
     Unit* GetAttacker() const { return m_attacker; };
     Unit* GetVictim() const { return m_victim; };
+    const_funlias(GetVictim, getVictim)
     SpellInfo const* GetSpellInfo() const { return m_spellInfo; };
     SpellSchoolMask GetSchoolMask() const { return m_schoolMask; };
     DamageEffectType GetDamageType() const { return m_damageType; };
@@ -1090,6 +1091,14 @@ enum class DisplayToastMethod : uint8
 typedef cds::container::FeldmanHashSet< cds::gc::HP, Unit*, UnitHashAccessor > UnitSet;
 typedef std::set<AuraEffect*> AuraEffectSet;
 
+enum PlayerTotemType
+{
+    SUMMON_TYPE_TOTEM_FIRE  = 63,
+    SUMMON_TYPE_TOTEM_EARTH = 81,
+    SUMMON_TYPE_TOTEM_WATER = 82,
+    SUMMON_TYPE_TOTEM_AIR   = 83
+};
+
 class Unit : public WorldObject
 {
     enum DamageTrackingInfo
@@ -1182,6 +1191,7 @@ class Unit : public WorldObject
         UnitSet* getAttackers() { return &m_attackers; }
         bool isAttackingPlayer() const;
         Unit* getVictim() const { return m_attacking; }
+        const_funlias(getVictim, GetVictim)
         void UpdateVictim(Unit* victim);
 
         void CombatStop(bool includingCast = false);
@@ -1215,6 +1225,16 @@ class Unit : public WorldObject
         bool isTrainingDummy() const { return m_unitTypeMask & UNIT_MASK_TRAINING_DUMMY; }
         bool isAnySummons() const;
         bool CanVehicleAI() const;
+
+        const_funlias(isSummon, IsSummon)
+        const_funlias(isGuardian, IsGuardian)
+        const_funlias(isPet, IsPet)
+        const_funlias(isHunterPet, IsHunterPet)
+        const_funlias(isTotem, IsTotem)
+        const_funlias(IsVehicle, isVehicle)
+        const_funlias(isMinion, isMinion)
+        const_funlias(isTrainingDummy, isTrainingDummy)
+        const_funlias(isAnySummons, isAnySummons)
 
         uint8 getLevel() const;
         uint8 GetEffectiveLevel() const;
@@ -1440,6 +1460,7 @@ class Unit : public WorldObject
         bool isSpiritService() const;
         bool isInFlight() const;
         bool isInCombat() const;
+        const_funlias(isInCombat, IsInCombat)
 
         void CombatStart(Unit* target, bool initialAggro = true);
         void SetInCombatState(Unit* enemy = nullptr, bool PvP = false);
@@ -1575,6 +1596,10 @@ class Unit : public WorldObject
         bool isAlive() const { return m_deathState == ALIVE; };
         bool isDying() const { return m_deathState == JUST_DIED; };
         bool isDead(bool withFeign = true) const;
+
+        const_funlias(isAlive, IsAlive)
+        const_funlias(isDying, IsDying)
+
         DeathState getDeathState() { return m_deathState; };
         virtual void setDeathState(DeathState s);           // overwrited in Creature/Player/Pet
 
@@ -1646,6 +1671,7 @@ class Unit : public WorldObject
         CharmInfo* GetCharmInfo() { return m_charmInfo; }
         CharmInfo* InitCharmInfo();
         void DeleteCharmInfo();
+        bool IsPlayerBot();
         void UpdateCharmAI();
         Unit* GetMover() const;
         Player* GetPlayerMover() const;
@@ -2212,6 +2238,7 @@ class Unit : public WorldObject
         bool SetCanDoubleJump(bool enable);
         void SendSetVehicleRecId(uint32 vehicleID);
 
+        float GetPositionZMinusOffset()const;
         void SetControlled(bool apply, UnitState state);
 
         ///----------Pet responses methods-----------------

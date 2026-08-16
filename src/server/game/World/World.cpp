@@ -111,6 +111,15 @@
 #include "WorldPacket.h"
 #include "WorldSession.h"
 #include "WorldStateMgr.h"
+#include "PlayerBotMgr.h"
+#include "FieldBotMgr.h"
+#include "PlayerBotTalkMgr.h"
+#include "AIWaypointsMgr.h"
+#include "WorldSocket.h"
+#include "Json.h"
+#include "PathfindingMgr.h"
+#include "BotGroupAI.h"
+#include "..\..\src\server\scripts\Custom\_Bot.h"
 
 uint8 World::m_ExitCode = SHUTDOWN_EXIT_CODE;
 std::atomic<uint32> World::m_worldLoopCounter(0);
@@ -1479,7 +1488,7 @@ void World::LoadConfigSettings(bool reload)
     m_int_configs[CONFIG_CHALLENGE_LEVEL_LIMIT] = sConfigMgr->GetIntDefault("Challenge.LevelLimit", 30);
     m_int_configs[CONFIG_CHALLENGE_LEVEL_MAX] = sConfigMgr->GetIntDefault("Challenge.LevelMax", 15);
     m_int_configs[CONFIG_CHALLENGE_LEVEL_STEP] = sConfigMgr->GetIntDefault("Challenge.LevelStep", 0);
-    m_int_configs[CONFIG_CHALLENGE_ADD_ITEM] = sConfigMgr->GetIntDefault("Challenge.AddItem", 1533);
+    m_int_configs[CONFIG_CHALLENGE_ADD_ITEM] = sConfigMgr->GetIntDefault("Challenge.AddItem", 138019);
     m_int_configs[CONFIG_CHALLENGE_ADD_ITEM_TYPE] = sConfigMgr->GetIntDefault("Challenge.AddItemType", 1);
     m_int_configs[CONFIG_CHALLENGE_ADD_ITEM_COUNT] = sConfigMgr->GetIntDefault("Challenge.AddItemCount", 120);
 	m_int_configs[CONFIG_CHALLENGE_MANUAL_AFFIX1] = sConfigMgr->GetIntDefault("Challenge.Manual.Affix1", 0);
@@ -1655,6 +1664,17 @@ void World::SetInitialWorldSettings()
 
     MMAP::MMapManager* mmmgr = MMAP::MMapFactory::createOrGetMMapManager();
     mmmgr->InitializeThreadUnsafe(mapData);
+
+    //TC_LOG_INFO("server.loading", "Loading Player bot base store...");
+    sPlayerBotMgr->LoadPlayerBotBaseInfo();
+    sPlayerBotTalkMgr->InitializeTalkText();
+    sPlayerBotTalkMgr->InitializeStory();
+    //TC_LOG_INFO("server.loading", "Loading AI Way points...");
+    if (!sAIWPMgr->LoadAIWaypoints())
+    {
+        exit(0);
+        return;
+    }
 
     sSpellMgr->LoadSpellInfoStore();
 
@@ -2155,6 +2175,117 @@ void World::SetInitialWorldSettings()
     TC_LOG_INFO(LOG_FILTER_SERVER_LOADING, "Loading Calendar data...");
     sCalendarMgr->LoadFromDB();
 
+    if (1==1)
+    {
+        // TC_LOG_ERROR("server.loading", "Gtools\n");
+        Json::Reader jsonReader;
+        Json::Value jsonValue;
+        //TC_LOG_INFO("server.loading", "load Gtools\n");
+        Json::Value jsonScoreRate = sConfigMgr->GetFloatDefault("bgscorerate", 1.0f);
+
+        float bgScoreReate =  sConfigMgr->GetFloatDefault("bgscorerate", 1.0f);
+        if (bgScoreReate < 0.2f)
+            bgScoreReate = 0.2f;
+        if (bgScoreReate > 8.0f)
+            bgScoreReate = 8.0f;
+        BotUtility::BattlegroundScoreRate = bgScoreReate;
+
+        Json::Value jsonAutoSetting = sConfigMgr->GetIntDefault("auto_setting", 1);
+        int autoSetting =  sConfigMgr->GetIntDefault("auto_setting", 1);
+        BotUtility::BotCanSettingToMaster = (autoSetting != 0) ? true : false;
+
+        Json::Value jsonMaxLevel = sConfigMgr->GetIntDefault("max_level", 3);
+        int maxLevel = sConfigMgr->GetIntDefault("max_level", 3);
+        if (maxLevel >= 0 && maxLevel < 4)
+        {
+            uint32 realLevel = 80;
+            switch (maxLevel)
+            {
+                case 0:
+                    realLevel = 45;
+                    break;
+                case 1:
+                    realLevel = 60;
+                    break;
+                case 2:
+                    realLevel = 70;
+                    break;
+                case 3:
+                    realLevel = 80;
+                    break;
+            }
+            sWorld->setIntConfig(CONFIG_MAX_PLAYER_LEVEL, realLevel);
+        }
+
+        Json::Value jsonMaxDungeon = sConfigMgr->GetIntDefault("maxdungeon", 0);
+        int maxDungeon = sConfigMgr->GetIntDefault("maxdungeon", 0);
+        BotGroupAI::PVE_MAX_DUNGEON = (maxDungeon != 0) ? true : false;
+        Json::Value jsonDriving = sConfigMgr->GetIntDefault("driving", 1);
+        int driving = sConfigMgr->GetIntDefault("driving", 1);
+        BotGroupAI::PVE_DRIVING = (driving != 0) ? true : false;
+
+        Json::Value jsonPull = sConfigMgr->GetIntDefault("pull", 1);
+        int pull = sConfigMgr->GetIntDefault("pull", 1);
+        BotGroupAI::PVE_PULL = (pull != 0) ? true : false;
+
+        Json::Value jsonAddion = sConfigMgr->GetFloatDefault("addion", 1.0f);
+        float modifyAddion = sConfigMgr->GetFloatDefault("addion", 1.0f);
+        if (modifyAddion < 0.5f)
+            modifyAddion = 0.5f;
+        if (modifyAddion > 15.0f)
+            modifyAddion = 15.0f;
+        BotUtility::DungeonBotDamageModify = modifyAddion;
+
+        Json::Value jsonEndure = sConfigMgr->GetFloatDefault("endure", 1.0f);
+        modifyAddion = sConfigMgr->GetFloatDefault("endure", 1.0f);
+        if (modifyAddion < 0.5f)
+            modifyAddion = 0.5f;
+        if (modifyAddion > 15.0f)
+            modifyAddion = 15.0f;
+        BotUtility::DungeonBotEndureModify = modifyAddion;
+
+        Json::Value jsonRevive = sConfigMgr->GetIntDefault("auto_revive", 0);
+        int revive  = sConfigMgr->GetIntDefault("auto_revive", 0);
+        BotUtility::BotCanForceRevive = (revive != 0) ? true : false;
+
+        Json::Value jsonFieldCreature = sConfigMgr->GetIntDefault("field_creature", 1);
+        int fCreature = sConfigMgr->GetIntDefault("field_creature", 1);
+        FieldBotMgr::FIELDBOT_CREATURE = (fCreature != 0) ? true : false;
+
+        Json::Value jsonFieldDriving = sConfigMgr->GetIntDefault("field_driving", 0);
+        int fDriving  = sConfigMgr->GetIntDefault("field_driving", 0);
+        FieldBotMgr::FIELDBOT_DRIVING = (fDriving != 0) ? true : false;
+
+        Json::Value jsonWarfareSize = sConfigMgr->GetIntDefault("warfare_size", 0);
+        int warfareSize  = sConfigMgr->GetIntDefault("warfare_size", 0);
+        if (warfareSize >= 0 && warfareSize <= 3)
+            FieldBotMgr::FIELDWARFARE_SIZE = warfareSize;
+
+        Json::Value jsonDiminishing = sConfigMgr->GetIntDefault("diminishing", 1);
+        BotUtility::ControllSpellDiminishing = (sConfigMgr->GetIntDefault("diminishing", 1) != 0) ? true : false;
+
+
+        Json::Value jsonCanBreakControll = sConfigMgr->GetIntDefault("canbreak_controll", 1);
+        BotUtility::ControllSpellFromDmgBreak = (sConfigMgr->GetIntDefault("canbreak_controll", 1) != 0) ? true : false;
+
+        //Json::Value jsonAutoBuildArena = sConfigMgr->GetIntDefault("auto_buildarena", 1);
+        //ArenaTeamMgr::g_AutoBuildArenaTeam = (sConfigMgr->GetIntDefault("auto_buildarena", 1) != 0) ? true : false;
+
+        Json::Value jsonDownBotArena =sConfigMgr->GetIntDefault("downbotarena", 1);
+        BotUtility::DownBotArenaTeam = (sConfigMgr->GetIntDefault("downbotarena", 1) != 0) ? true : false;
+
+        Json::Value jsonArenaIsHell = sConfigMgr->GetIntDefault("arenahell", 0);
+        BotUtility::ArenaIsHell = (sConfigMgr->GetIntDefault("arenahell", 0) != 0) ? true : false;
+
+        Json::Value jsonArenaTeamTactics = sConfigMgr->GetIntDefault("bottactics", 1);
+        uint32 tactics = sConfigMgr->GetIntDefault("bottactics", 1);
+        if (tactics < 3)
+            BotUtility::BotArenaTeamTactics = tactics;
+
+        Json::Value dkquest = sConfigMgr->GetIntDefault("dkquest", 0);
+        BotUtility::DisableDKQuest = (sConfigMgr->GetIntDefault("dkquest", 0) != 0) ? true : false;
+    }
+
     ///- Initialize game time and timers
     TC_LOG_INFO(LOG_FILTER_SERVER_LOADING, "Initialize game time and timers");
     m_gameTime = time(nullptr);
@@ -2174,9 +2305,14 @@ void World::SetInitialWorldSettings()
 
     m_timers[WUPDATE_AHBOT].SetInterval(getIntConfig(CONFIG_AHBOT_UPDATE_INTERVAL) * IN_MILLISECONDS); // every 20 sec
 
+    m_timers[WUPDATE_1_SECS].SetInterval(1* IN_MILLISECONDS); // every 20 sec
+
     m_timers[WUPDATE_PINGDB].SetInterval(getIntConfig(CONFIG_DB_PING_INTERVAL)*MINUTE*IN_MILLISECONDS);    // Mysql ping time in minutes
 
     m_timers[WUPDATE_GUILDSAVE].SetInterval(getIntConfig(CONFIG_GUILD_SAVE_INTERVAL) * MINUTE * IN_MILLISECONDS);
+
+    m_timers[WUPDATE_PLAYERBOT_MGR].SetInterval(IN_MILLISECONDS * 2);
+    m_timers[WUPDATE_FIELDBOT_MGR].SetInterval(IN_MILLISECONDS * 5);
 
     m_timers[WUPDATE_BLACKMARKET].SetInterval(10 * IN_MILLISECONDS);
     blackmarket_timer = 0;
@@ -2291,6 +2427,8 @@ void World::SetInitialWorldSettings()
     sBattlePetDataStore->Initialize();
     sWildBattlePetMgr->Load();
 
+    sMybot->Load();
+
     sWorldStateMgr.CreateWorldStatesIfNeed();
 
     TC_LOG_INFO(LOG_FILTER_GENERAL, "Loading realm name...");
@@ -2307,6 +2445,7 @@ void World::SetInitialWorldSettings()
     locales.join();
     uint32 startupDuration = GetMSTimeDiffToNow(startupBegin);
 
+    sPlayerBotMgr->UpAllPlayerBotSession();
     TC_LOG_INFO(LOG_FILTER_WORLDSERVER, "World initialized in %u minutes %u seconds", (startupDuration / 60000), ((startupDuration % 60000) / 1000));
     sLog->EnableDBAppenders();
 }
@@ -2462,6 +2601,12 @@ void World::Update(uint32 diff)
         sAuctionMgr->Update();
     }
 
+    if (m_timers[WUPDATE_1_SECS].Passed())
+    {
+        m_timers[WUPDATE_1_SECS].Reset();
+        sMybot->PlBotupdate();
+    }
+
     if (m_timers[WUPDATE_BLACKMARKET].OnTimerPassReset())
     {
         sBlackMarketMgr->Update();
@@ -2595,6 +2740,18 @@ void World::Update(uint32 diff)
         LoginDatabase.KeepAlive();
         WorldDatabase.KeepAlive();
     }
+
+    if (m_timers[WUPDATE_PLAYERBOT_MGR].Passed())
+    {
+        sPlayerBotMgr->Update();
+        m_timers[WUPDATE_PLAYERBOT_MGR].Reset();
+    }
+    if (m_timers[WUPDATE_FIELDBOT_MGR].Passed())
+    {
+        //sFieldBotMgr->Update();
+        m_timers[WUPDATE_FIELDBOT_MGR].Reset();
+    }
+    sFPMgr->Update();
 
     if (m_timers[WUPDATE_GUILDSAVE].Passed())
     {
@@ -3244,6 +3401,8 @@ void World::SendServerMessage(ServerMessageType type, char const* text, Player* 
 
 void World::UpdateSessions(uint32 diff)
 {
+    sMybot->UpdateAllSessions(diff);
+
     std::pair<std::weak_ptr<WorldSocket>, uint64> linkInfo;
     while (_linkSocketQueue.next(linkInfo))
         ProcessLinkInstanceSocket(std::move(linkInfo));
@@ -3275,7 +3434,7 @@ void World::UpdateSessions(uint32 diff)
             if (!RemoveQueuedPlayer(itr->second) && getIntConfig(CONFIG_INTERVAL_DISCONNECT_TOLERANCE))
                 m_disconnects[accuntId] = time(nullptr);
             RemoveQueuedPlayer(pSession);
-            pSession->LogoutPlayer(true);
+            pSession->LogoutPlayer(true, "UpdateSessions");
             m_sessions.erase(itr);
         }
     }
@@ -4546,6 +4705,10 @@ void World::ProcessMailboxQueue()
 
 void World::InitServerAutoRestartTime()
 {
+    time_t serverRestartTime = sWorld->getWorldState(WS_AUTO_SERVER_RESTART_TIME);
+    if (!serverRestartTime)
+        m_NextServerRestart = time_t(time(nullptr));         // game time not yet init
+
     // generate time by config
     time_t curTime = time(nullptr);
     tm localTm = *localtime(&curTime);
@@ -4554,14 +4717,20 @@ void World::InitServerAutoRestartTime()
     localTm.tm_sec = 0;
 
     // current day reset time
-    m_NextServerRestart = mktime(&localTm);
+    time_t nextDayRestartTime = mktime(&localTm);
 
-    // if the restart is scheduled before the current time, or in the next hour
-    // move the restart date back 1 day, no point in restarting in this case
-    if (curTime + HOUR >= m_NextServerRestart)
-        m_NextServerRestart += DAY;
+    // next reset time before current moment
+    if (curTime >= nextDayRestartTime)
+        nextDayRestartTime += DAY;
 
-    sWorld->setWorldState(WS_AUTO_SERVER_RESTART_TIME, m_NextServerRestart);
+    // normalize reset time
+    m_NextServerRestart = serverRestartTime < curTime ? nextDayRestartTime - DAY : nextDayRestartTime;
+
+    if (!serverRestartTime)
+        sWorld->setWorldState(WS_AUTO_SERVER_RESTART_TIME, m_NextServerRestart);
+
+    if (!m_bool_configs[CONFIG_DISABLE_RESTART])
+        m_NextServerRestart += DAY*1;
 }
 
 void World::AutoRestartServer()
@@ -4570,7 +4739,7 @@ void World::AutoRestartServer()
 
     sWorld->ShutdownServ(60, SHUTDOWN_MASK_RESTART, RESTART_EXIT_CODE);
 
-    m_NextServerRestart = time_t(m_NextServerRestart + DAY);
+    m_NextServerRestart = time_t(m_NextServerRestart + DAY*1);
     sWorld->setWorldState(WS_AUTO_SERVER_RESTART_TIME, m_NextServerRestart);
 }
 
